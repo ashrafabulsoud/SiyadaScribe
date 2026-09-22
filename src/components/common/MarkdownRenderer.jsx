@@ -281,6 +281,7 @@ const MarkdownRenderer = ({ children, citations, citationRemap, ...props }) => {
     const remap = citationRemap instanceof Map ? citationRemap : null;
 
     return (
+        <div dir="auto">
         <ReactMarkdown
             remarkPlugins={[remarkGfm, remarkInlineCitations]}
             components={{
@@ -360,6 +361,7 @@ const MarkdownRenderer = ({ children, citations, citationRemap, ...props }) => {
         >
             {children}
         </ReactMarkdown>
+        </div>
     );
 };
 

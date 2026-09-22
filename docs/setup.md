@@ -124,6 +124,43 @@ pip install -r requirements.txt
 - Use shorter audio segments (<5 minutes) for best diarization accuracy
 - For multi-speaker clinics, diarization significantly improves note quality
 
+## Authentication and Users
+
+Authentication is required for Docker deployments. On the first browser visit,
+create the administrator account. Add further users from **Settings → Users**.
+
+Alternatively, let a reverse proxy handle authentication using
+`PROXY_AUTH_ENABLED=true`, `PROXY_AUTH_USER_HEADER` (default `X-Forwarded-User`),
+and `PROXY_AUTH_ALLOWED_USERS` (a comma-separated allowlist). `TRUSTED_PROXY_IPS`
+is required: list the IPs/CIDRs of every proxy hop. Choose either built-in user
+accounts or reverse-proxy authentication; do not combine the two approaches.
+
+The current environment variables are:
+
+- `SIYADASCRIBE_PASSPHRASE`: the legacy shared passphrase variable, now deprecated
+  and ignored; use user accounts instead.
+- `SIYADASCRIBE_ALLOW_UNAUTHENTICATED=true`: explicitly bypasses authentication and
+  runs requests as admin. Leave it unset for authenticated deployments.
+
+## Output Language
+
+In **Settings → User Settings → General**, choose **Output Language** for notes
+(including field refinement), summaries, letters, clinical reasoning, and chat:
+
+- **Auto (match dictation):** follows the dictated language, including mixed
+  Arabic/English. A non-English preferred language retains upstream's output rule.
+- **English:** generates English output regardless of the dictation language.
+- **Arabic (العربية):** generates Modern Standard Arabic output.
+- **Bilingual (EN + AR):** generates English first, followed by Arabic.
+
+The separate global `WHISPER_LANGUAGE` setting in the Whisper settings panel
+controls speech recognition. Leave it as `auto` (the default) to let an external
+endpoint detect each recording when the preferred language is English, or enter
+an ISO code such as `en` or `ar` to force a language. With `auto`, a non-English
+preferred language is still sent to the external endpoint. Local STT uses a
+supported explicit language, otherwise the preferred language, falling back to
+English if the active model does not support it.
+
 ## Post-Installation Notes
 
 -   **Data Persistence:**  Your application data (database, ChromaDB data) is stored in the `./data` directory relative to your `docker-compose.yml` file.

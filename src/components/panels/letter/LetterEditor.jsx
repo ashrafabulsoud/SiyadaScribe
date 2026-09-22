@@ -51,6 +51,7 @@ const LetterEditor = ({
         transition="opacity 0.2s ease-in-out, filter 0.2s ease-in-out"
       >
         <Textarea
+          dir="auto"
           placeholder="Write your letter here..."
           value={finalCorrespondence || "No letter attached to encounter"}
           onChange={(e) => {

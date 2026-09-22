@@ -109,6 +109,26 @@ const WhisperTab = ({
                 </Box>
 
                 <Box>
+                    <Text as="label" htmlFor="whisper-language" fontSize="sm" mb="1" fontWeight={"bold"}>
+                        Transcription Language
+                    </Text>
+                    <Input
+                        id="whisper-language"
+                        size="sm"
+                        value={config?.WHISPER_LANGUAGE ?? "auto"}
+                        onChange={(e) =>
+                            handleConfigChange("WHISPER_LANGUAGE", e.target.value)
+                        }
+                        placeholder="auto"
+                        className="input-style"
+                        aria-describedby="whisper-language-help"
+                    />
+                    <Text id="whisper-language-help" fontSize="xs" className="pill-box-icons" mt={1}>
+                        ISO code to force a transcription language, e.g. en or ar. Leave as auto to detect per recording.
+                    </Text>
+                </Box>
+
+                <Box>
                     <Tooltip content="API key for authenticating with the Whisper service">
                         <Text fontSize="sm" mb="1" fontWeight={"bold"}>
                             API Key

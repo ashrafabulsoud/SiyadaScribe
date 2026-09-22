@@ -186,6 +186,32 @@ const UserSettingsPanel = ({
                   </Field.Root>
                   <Field.Root>
                     <Field.Label fontSize="sm" fontWeight={"bold"}>
+                      {t("outputLanguage.label")}
+                    </Field.Label>
+                    <NativeSelect.Root>
+                      <NativeSelect.Field
+                        size="sm"
+                        value={userSettings.output_language || "auto"}
+                        onChange={(e) =>
+                          setUserSettings((prev) => ({
+                            ...prev,
+                            output_language: e.target.value,
+                          }))
+                        }
+                        className="input-style">
+                        <option value="auto">{t("outputLanguage.auto")}</option>
+                        <option value="english">{t("outputLanguage.english")}</option>
+                        <option value="arabic">{t("outputLanguage.arabic")}</option>
+                        <option value="bilingual">{t("outputLanguage.bilingual")}</option>
+                      </NativeSelect.Field>
+                      <NativeSelect.Indicator />
+                    </NativeSelect.Root>
+                    <Text fontSize="xs" className="pill-box-icons" mt={1}>
+                      {t("outputLanguage.description")}
+                    </Text>
+                  </Field.Root>
+                  <Field.Root>
+                    <Field.Label fontSize="sm" fontWeight={"bold"}>
                       Default Template
                     </Field.Label>
                     <NativeSelect.Root>

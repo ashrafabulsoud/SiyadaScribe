@@ -9,6 +9,14 @@
         "label": "Language",
         "transcriptionUnsupported": "The current transcription model doesn't support {{language}}. Transcription will default to English."
     },
+    "outputLanguage": {
+        "arabic": "Arabic (العربية)",
+        "auto": "Auto (match dictation)",
+        "bilingual": "Bilingual (EN + AR)",
+        "description": "Language of generated notes, summaries, letters and chat. Auto follows whatever language you dictate in.",
+        "english": "English",
+        "label": "Output Language"
+    },
     "status": {
         "error": "Error",
         "loading": "Loading…",

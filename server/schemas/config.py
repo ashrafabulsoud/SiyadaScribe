@@ -14,6 +14,7 @@ class Config(BaseModel):
         EMBEDDING_MODEL (str): Model used for embedding generation.
         WHISPER_BASE_URL (str): Base URL for Whisper-compatible transcription endpoint.
         WHISPER_MODEL (str): Whisper model identifier.
+        WHISPER_LANGUAGE (str): Forced transcription ISO code, or "auto" to detect.
         WHISPER_KEY (str): API key for Whisper endpoint (optional depending on provider).
         REASONING_MODEL (str): Model used for reasoning/analysis tasks.
         REASONING_ENABLED (bool): Toggle to enable or disable reasoning features.
@@ -30,6 +31,7 @@ class Config(BaseModel):
 
     WHISPER_BASE_URL: str = Field(default="")
     WHISPER_MODEL: str = Field(default="")
+    WHISPER_LANGUAGE: str = Field(default="auto")
     WHISPER_KEY: str = Field(default="")
 
     REASONING_MODEL: str = Field(default="")

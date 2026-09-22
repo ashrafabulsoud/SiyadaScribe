@@ -11,6 +11,7 @@ from collections.abc import AsyncGenerator
 from typing import Any, Union
 
 from server.database.config.manager import config_manager
+from server.utils.language import language_directive, normalize_output_language
 from server.utils.languages import get_language_name
 from server.utils.url_utils import normalize_openai_base_url
 
@@ -156,11 +157,20 @@ class AsyncLLMClient:
         )
 
     def _with_language_directive(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Prepend an output-language directive when a non-English language is set."""
+        """Apply explicit output language, otherwise retain the preferred-language rule."""
         try:
-            language = config_manager.get_user_settings().get("preferred_language", "en")
+            settings = config_manager.get_user_settings()
+            language = settings.get("preferred_language", "en")
+            output_language = normalize_output_language(settings.get("output_language"))
         except Exception:
             return messages
+
+        if output_language != "auto":
+            directive = language_directive(output_language)
+            if messages and messages[0].get("role") == "system":
+                merged = {**messages[0], "content": f"{messages[0].get('content', '')}{directive}"}
+                return [merged, *messages[1:]]
+            return [{"role": "system", "content": directive.strip()}, *messages]
 
         if not language or language == "en":
             return messages

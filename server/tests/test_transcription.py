@@ -346,3 +346,117 @@ async def test_process_transcription_empty_field_gets_placeholder():
 
 def test_format_numbered_list_skips_blank_points():
     assert _format_numbered_list(["First", "", "Third"]) == "1. First\n2. Third"
+
+
+@pytest.mark.parametrize(
+    "name, expected",
+    [
+        ("Doe, Jane", "Jane Doe"),
+        ("Jane Doe", "Jane Doe"),
+        ("Madonna", "Madonna"),
+        (None, "N/A"),
+        ("", "N/A"),
+    ],
+)
+def test_patient_display_name_without_comma(name, expected):
+    from server.api.transcribe import _format_patient_display_name
+
+    assert _format_patient_display_name(name) == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "whisper_language, preferred_language, expected",
+    [
+        (None, "en", None),
+        ("auto", "en", None),
+        ("", "en", None),
+        ("auto", "es", "es"),
+        ("ar", "en", "ar"),
+        ("en", "es", "en"),
+    ],
+)
+async def test_external_transcription_language(
+    monkeypatch, whisper_language, preferred_language, expected
+):
+    from server.transcription import audio
+
+    config = {
+        "WHISPER_BASE_URL": "http://fake-whisper/v1",
+        "WHISPER_MODEL": "whisper-1",
+        "WHISPER_KEY": "fake-key",
+    }
+    if whisper_language is not None:
+        config["WHISPER_LANGUAGE"] = whisper_language
+    monkeypatch.setattr(audio.config_manager, "get_config", lambda: config)
+    monkeypatch.setattr(
+        audio.config_manager,
+        "get_user_settings",
+        lambda: {"preferred_language": preferred_language},
+    )
+    mock_client = AsyncMock()
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.post.return_value = httpx.Response(200, json={"text": "Mixed transcript"})
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **_kwargs: mock_client)
+    result = await transcribe_audio(b"ID3audio")
+    assert result["text"] == "Mixed transcript"
+    request = mock_client.post.call_args
+    assert request.args == ("http://fake-whisper/v1/audio/transcriptions",)
+    expected_data = {
+        "model": "whisper-1",
+        "temperature": "0.1",
+        "vad_filter": "true",
+        "response_format": "verbose_json",
+        "timestamp_granularities[]": "segment",
+    }
+    if expected is not None:
+        expected_data["language"] = expected
+    assert request.kwargs["data"] == expected_data
+    assert request.kwargs["files"] == {"file": ("recording.mp3", b"ID3audio", "audio/mpeg")}
+    assert request.kwargs["headers"] == {"Authorization": "Bearer fake-key"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "whisper_language, preferred_language, supported, expected",
+    [
+        ("ar", "en", ["en", "ar"], "ar"),
+        ("ar", "es", ["en", "es"], "es"),
+        ("ar", "es", ["en"], "en"),
+        ("auto", "es", ["en", "es"], "es"),
+        ("auto", "ar", ["en"], "en"),
+    ],
+)
+async def test_local_transcription_language(
+    monkeypatch, whisper_language, preferred_language, supported, expected
+):
+    from server.transcription import audio
+
+    monkeypatch.setattr(
+        audio.config_manager,
+        "get_config",
+        lambda: {
+            "LLM_PROVIDER": "local",
+            "WHISPER_BASE_URL": "",
+            "WHISPER_LANGUAGE": whisper_language,
+        },
+    )
+    monkeypatch.setattr(
+        audio.config_manager,
+        "get_user_settings",
+        lambda: {"preferred_language": preferred_language},
+    )
+    monkeypatch.setattr(
+        audio.whisper_model_manager, "get_active_model_languages", lambda: supported
+    )
+    monkeypatch.setattr(audio, "_get_whisper_port", lambda: "8080")
+    mock_client = AsyncMock()
+    mock_client.__aenter__.return_value = mock_client
+    mock_client.post.return_value = httpx.Response(200, json={"text": "Local transcript"})
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **_kwargs: mock_client)
+    assert (await transcribe_audio(b"audio"))["text"] == "Local transcript"
+    assert mock_client.post.call_args.kwargs["data"] == {
+        "response_format": "verbose_json",
+        "language": expected,
+        "temperature": "0.0",
+    }

@@ -104,7 +104,7 @@ const TranscriptionPanel = ({
                 },
               }}
             >
-              <Text whiteSpace="pre-wrap" fontSize="xs" lineHeight="1.5">
+              <Text dir="auto" whiteSpace="pre-wrap" fontSize="xs" lineHeight="1.5">
                 {rawTranscription}
               </Text>
             </Box>

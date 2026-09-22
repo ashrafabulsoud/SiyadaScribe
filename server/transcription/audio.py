@@ -36,7 +36,10 @@ async def transcribe_audio(audio_buffer: bytes) -> dict[str, Union[str, float]]:
             logger.info("Using local STT server for transcription")
             stt_language = preferred_language
             supported = whisper_model_manager.get_active_model_languages()
-            if preferred_language not in supported:
+            whisper_language = (config.get("WHISPER_LANGUAGE") or "auto").strip()
+            if whisper_language != "auto" and whisper_language in supported:
+                stt_language = whisper_language
+            if stt_language not in supported:
                 logger.warning(
                     f"Active local STT model does not support '{preferred_language}'; "
                     f"falling back to 'en'. Supported: {supported}"
@@ -116,12 +119,16 @@ async def _transcribe_external_api(
         files = {"file": (filename, audio_buffer, content_type)}
         data = {
             "model": config["WHISPER_MODEL"],
-            "language": language,
             "temperature": "0.1",
             "vad_filter": "true",
             "response_format": "verbose_json",
             "timestamp_granularities[]": "segment",
         }
+        whisper_language = (config.get("WHISPER_LANGUAGE") or "auto").strip()
+        if whisper_language and whisper_language != "auto":
+            data["language"] = whisper_language
+        elif language and language != "en":
+            data["language"] = language
 
         transcription_start = time.perf_counter()
 

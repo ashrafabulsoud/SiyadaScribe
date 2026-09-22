@@ -6,6 +6,7 @@ import sqlcipher3 as sqlite3
 from server.database.config.defaults.prompts import DEFAULT_PROMPTS
 from server.database.core.connection import get_db, is_db_initialized
 from server.utils.current_user import current_user_id
+from server.utils.language import normalize_output_language
 
 logger = logging.getLogger(__name__)
 
@@ -266,7 +267,8 @@ class ConfigManager:
                     default_template_key,
                     default_letter_template_id,
                     has_completed_splash_screen,
-                    preferred_language
+                    preferred_language,
+                    output_language
                 FROM user_settings
                 WHERE {where}
                 """,
@@ -283,6 +285,7 @@ class ConfigManager:
                 )
             if not settings.get("preferred_language"):
                 settings["preferred_language"] = "en"
+            settings["output_language"] = normalize_output_language(settings.get("output_language"))
             return settings
         return {
             "name": "",
@@ -297,6 +300,7 @@ class ConfigManager:
             "default_letter_template_id": None,
             "has_completed_splash_screen": False,
             "preferred_language": "en",
+            "output_language": "auto",
         }
 
     def update_user_settings(self, settings: dict):
@@ -320,8 +324,9 @@ class ConfigManager:
                     default_letter_template_id,
                     has_completed_splash_screen,
                     preferred_language,
+                    output_language,
                     user_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     settings.get("name", ""),
@@ -336,6 +341,7 @@ class ConfigManager:
                     settings.get("default_letter_template_id"),
                     bool(settings.get("has_completed_splash_screen", False)),
                     settings.get("preferred_language", "en"),
+                    normalize_output_language(settings.get("output_language")),
                     uid,
                 ),
             )

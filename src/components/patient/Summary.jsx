@@ -146,6 +146,7 @@ const Summary = forwardRef(
             {field.field_name}:{persistentMarker}
           </Text>
           <TextareaAutosize
+            dir="auto"
             placeholder="Enter text..."
             value={patient.template_data?.[field.field_key] || ""}
             onChange={(e) => {

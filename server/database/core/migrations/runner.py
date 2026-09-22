@@ -4,7 +4,7 @@ Migration runner with savepoint-based transaction handling.
 
 import logging
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 
 def run_migrations(patient_db):
@@ -33,6 +33,19 @@ def run_migrations(patient_db):
             cursor.execute("SELECT MAX(version) AS version FROM schema_version")
             result = cursor.fetchone()
             current_version = (result["version"] if result else None) or 0
+
+            if current_version == 6:
+                cursor.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table' "
+                    "AND name IN ('patients', 'patient_profiles')"
+                )
+                tables = {row["name"] for row in cursor.fetchall()}
+                if "patients" in tables and "patient_profiles" not in tables:
+                    logging.info(
+                        "Detected SiyadaScribe 1.0.5 schema v6 (output_language only); "
+                        "replaying upstream migrations v6 onward for patient profiles."
+                    )
+                    current_version = 5
 
             if current_version < SCHEMA_VERSION:
                 logging.info(

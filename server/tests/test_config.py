@@ -186,6 +186,45 @@ def test_language_directive_injected_only_for_non_english(monkeypatch):
     assert out[1:] == with_system[1:]
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "output_language, preferred_language, expected, absent",
+    [
+        ("arabic", "en", "Modern Standard Arabic", "English-speaking clinical setting"),
+        ("arabic", "es", "Modern Standard Arabic", "Spanish-speaking clinical setting"),
+        ("auto", "es", "Spanish-speaking clinical setting", "OUTPUT LANGUAGE:"),
+    ],
+)
+async def test_output_language_directive_precedence(
+    monkeypatch, output_language, preferred_language, expected, absent
+):
+    from unittest.mock import AsyncMock
+
+    from server.database.config.manager import config_manager
+    from server.llm_client import client as client_module
+
+    monkeypatch.setattr(
+        config_manager,
+        "get_user_settings",
+        lambda: {
+            "output_language": output_language,
+            "preferred_language": preferred_language,
+        },
+    )
+    provider = AsyncMock(return_value={"message": {"content": "done"}})
+    monkeypatch.setattr(client_module, "openai_compatible_chat", provider)
+    llm = client_module.AsyncLLMClient(provider_type="openai", base_url="http://localhost:9999")
+    messages = [{"role": "system", "content": "original"}, {"role": "user", "content": "hi"}]
+    await llm.chat(model="test", messages=messages)
+    sent = provider.call_args.args[2]
+    assert sum(message["role"] == "system" for message in sent) == 1
+    assert expected in sent[0]["content"]
+    assert absent not in sent[0]["content"]
+    assert "original" in sent[0]["content"]
+    assert sent[1:] == messages[1:]
+    assert messages[0]["content"] == "original"
+
+
 def test_policy_keys_present_in_global_config():
     """Migration v9 backfills the three policy keys into config KV."""
     data = client.get("/api/config/global").json()
@@ -485,3 +524,54 @@ async def test_whisper_models_requires_admin():
     with pytest.raises(HTTPException) as exc:
         await get_whisper_models(whisperEndpoint="http://127.0.0.1:1")
     assert exc.value.status_code == 403
+
+
+def test_user_settings_output_language_defaults_to_auto():
+    response = client.get("/api/config/user")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["output_language"] == "auto"
+
+
+def test_user_settings_output_language_round_trips():
+    # Persist a non-default choice and read it back.
+    save = client.post("/api/config/user", json={"output_language": "arabic"})
+    assert save.status_code == 200
+
+    read = client.get("/api/config/user")
+    assert read.status_code == 200
+    assert read.json()["output_language"] == "arabic"
+
+    # Restore the default so other tests are unaffected.
+    client.post("/api/config/user", json={"output_language": "auto"})
+
+
+@pytest.mark.parametrize(
+    "value, expected", [(None, "auto"), ("", "auto"), ("invalid", "auto"), (" Arabic ", "arabic")]
+)
+def test_output_language_normalized_and_preserved(value, expected):
+    from server.database.config.manager import config_manager
+
+    original = config_manager.get_user_settings()
+    try:
+        config_manager.update_user_settings({"output_language": value})
+        config_manager.update_user_settings({"specialty": "cardiology"})
+        assert config_manager.get_user_settings()["output_language"] == expected
+        # Also normalize pre-existing invalid database values when reading.
+        where, params = config_manager._user_settings_where()
+        with config_manager.db.transaction() as cursor:
+            cursor.execute(
+                f"UPDATE user_settings SET output_language = ? WHERE {where}", [value, *params]
+            )
+        assert config_manager.get_user_settings()["output_language"] == expected
+    finally:
+        config_manager.update_user_settings(original)
+
+
+def test_whisper_language_default_and_round_trip():
+    assert client.get("/api/config/global").json()["WHISPER_LANGUAGE"] == "auto"
+    try:
+        assert client.post("/api/config/global", json={"WHISPER_LANGUAGE": "ar"}).status_code == 200
+        assert client.get("/api/config/global").json()["WHISPER_LANGUAGE"] == "ar"
+    finally:
+        client.post("/api/config/global", json={"WHISPER_LANGUAGE": "auto"})
