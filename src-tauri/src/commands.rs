@@ -492,7 +492,7 @@ pub fn get_encryption_status() -> serde_json::Value {
     })
 }
 
-/// Start the Phlox server (warm start - no passphrase yet).
+/// Start the SiyadaScribe server (warm start - no passphrase yet).
 #[tauri::command]
 pub async fn start_server_command(
     _app_handle: tauri::AppHandle,

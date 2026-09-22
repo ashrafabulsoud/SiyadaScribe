@@ -66,11 +66,11 @@ jobs:
           persist-credentials: false
 
       - name: Build Test Docker Image
-        run: docker build -f Dockerfile.test -t phlox-test .
+        run: docker build -f Dockerfile.test -t siyadascribe-test .
 
       - name: Run Tests in Docker Container
         run: |
-          docker run --name test-container phlox-test
+          docker run --name test-container siyadascribe-test
           docker cp test-container:/usr/src/app/coverage.lcov ./coverage.lcov
           docker rm test-container
 

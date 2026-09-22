@@ -58,7 +58,7 @@ export const AboutYouStep = ({
     <Field.Root required>
       <HStack>
         <Field.Label fontSize="sm" color="textSecondary">Your Specialty</Field.Label>
-        <Tooltip content="Your medical specialty helps Phlox provide more relevant assistance" showArrow>
+        <Tooltip content="Your medical specialty helps SiyadaScribe provide more relevant assistance" showArrow>
           <InfoIcon boxSize={3} color="textSecondary" />
         </Tooltip>
       </HStack>

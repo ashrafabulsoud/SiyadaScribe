@@ -122,7 +122,7 @@ export const AuthGate = ({ onSuccess }) => {
             align="center"
             mb={2}
           >
-            <Image src="/logo.webp" alt="Phlox Logo" width="60px" mb={3} />
+            <Image src="/logo.webp" alt="SiyadaScribe Logo" width="60px" mb={3} />
             <Heading
               as="h1"
               textAlign="center"

@@ -32,7 +32,7 @@ def test_db(tmp_path_factory):
 
 def test_database_initialization(test_db):
     assert test_db.is_test is True
-    assert "test_phlox_database.sqlite" in test_db.db_path
+    assert "test_siyadascribe_database.sqlite" in test_db.db_path
     assert Path(test_db.db_path).exists()
 
 

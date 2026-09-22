@@ -34,13 +34,13 @@ audit:
 	cd server && uv pip check
 
 rebuild-dev:
-	docker build -f Dockerfile.dev -t localhost/phlox-dev:latest .
+	docker build -f Dockerfile.dev -t localhost/siyadascribe-dev:latest .
 
 rebuild-prod:
-	docker build -f Dockerfile -t localhost/phlox:latest .
+	docker build -f Dockerfile -t localhost/siyadascribe:latest .
 
 rebuild-test:
-	docker build -f Dockerfile.test -t localhost/phlox-test:latest .
+	docker build -f Dockerfile.test -t localhost/siyadascribe-test:latest .
 
 lint:
 	cd server && uv run ruff check .

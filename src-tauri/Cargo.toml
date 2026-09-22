@@ -2,12 +2,12 @@
 resolver = "2"
 
 [package]
-name = "phlox"
+name = "siyadascribe"
 version = "2.4.2"
 description = "Open-source AI scribe with patient management"
-authors = ["bloodworks-io"]
+authors = ["SiyadaScribe"]
 license = "MIT"
-repository = "https://github.com/bloodworks-io/phlox"
+repository = "https://github.com/ashrafabulsoud/SiyadaScribe"
 edition = "2021"
 
 [build-dependencies]
@@ -64,5 +64,5 @@ webkit2gtk = { version = "2", features = ["v2_40"] }
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_Console"] }
 
 [[bin]]
-name = "phlox"
+name = "siyadascribe"
 path = "src/main.rs"

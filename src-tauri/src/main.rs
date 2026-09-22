@@ -118,7 +118,7 @@ pub fn run() {
         .targets([
             Target::new(TargetKind::Stdout),
             Target::new(TargetKind::LogDir {
-                file_name: Some("phlox-app.log".into()),
+                file_name: Some("siyadascribe-app.log".into()),
             }),
         ])
         .level(LevelFilter::Debug)

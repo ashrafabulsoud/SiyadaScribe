@@ -18,22 +18,22 @@ def test_set_default_template(monkeypatch):
         return
 
     monkeypatch.setattr("server.api.templates.set_default_template", fake_set_default_template)
-    response = client.post("/api/templates/default/phlox_01")
+    response = client.post("/api/templates/default/siyadascribe_01")
     assert response.status_code == 200
     data = response.json()
-    assert "Set phlox_01" in data.get("message", "")
+    assert "Set siyadascribe_01" in data.get("message", "")
 
 
 def test_get_default_template(monkeypatch):
     # Patch get_default_template to return a dummy value
     def fake_get_default_template():
-        return {"template_key": "phlox_01"}
+        return {"template_key": "siyadascribe_01"}
 
     monkeypatch.setattr("server.api.templates.get_default_template", fake_get_default_template)
     response = client.get("/api/templates/default")
     assert response.status_code == 200
     data = response.json()
-    assert data.get("template_key") == "phlox_01"
+    assert data.get("template_key") == "siyadascribe_01"
 
 
 def test_get_template(monkeypatch):
@@ -42,10 +42,10 @@ def test_get_template(monkeypatch):
         return {"template_key": template_key, "template_name": "Test Template", "fields": []}
 
     monkeypatch.setattr("server.api.templates.get_template_by_key", fake_get_template)
-    response = client.get("/api/templates/phlox_01")
+    response = client.get("/api/templates/siyadascribe_01")
     assert response.status_code == 200
     data = response.json()
-    assert data.get("template_key") == "phlox_01"
+    assert data.get("template_key") == "siyadascribe_01"
 
 
 def test_get_templates():
@@ -112,7 +112,7 @@ def _protected_template_payload(key):
 
 
 def test_save_templates_forks_protected_on_create(monkeypatch):
-    """Saving a protected template creates custom_phlox_1; default pointer follows."""
+    """Saving a protected template creates custom_siyadascribe_1; default pointer follows."""
     from server.database.config.manager import config_manager
 
     saved = {}
@@ -123,16 +123,18 @@ def test_save_templates_forks_protected_on_create(monkeypatch):
     monkeypatch.setattr("server.api.templates.template_exists", lambda _key: False)
     monkeypatch.setattr("server.api.templates.save_template", fake_save_template)
 
-    original_default = config_manager.get_default_template_key() or "phlox_01"
+    original_default = config_manager.get_default_template_key() or "siyadascribe_01"
     try:
-        config_manager.set_default_template_key("phlox_01")
-        response = client.post("/api/templates", json=_protected_template_payload("phlox_01"))
+        config_manager.set_default_template_key("siyadascribe_01")
+        response = client.post(
+            "/api/templates", json=_protected_template_payload("siyadascribe_01")
+        )
         assert response.status_code == 200
         data = response.json()
-        assert saved["key"] == "custom_phlox_1"
-        assert data["updated_keys"]["phlox_01"] == "custom_phlox_1"
+        assert saved["key"] == "custom_siyadascribe_1"
+        assert data["updated_keys"]["siyadascribe_01"] == "custom_siyadascribe_1"
         assert any("Forked default template" in d for d in data["details"])
-        assert config_manager.get_default_template_key() == "custom_phlox_1"
+        assert config_manager.get_default_template_key() == "custom_siyadascribe_1"
     finally:
         config_manager.set_default_template_key(original_default)
 
@@ -144,31 +146,33 @@ def test_save_templates_fork_does_not_move_unrelated_default(monkeypatch):
     monkeypatch.setattr("server.api.templates.template_exists", lambda _key: False)
     monkeypatch.setattr("server.api.templates.save_template", lambda _t: None)
 
-    original_default = config_manager.get_default_template_key() or "phlox_01"
+    original_default = config_manager.get_default_template_key() or "siyadascribe_01"
     try:
-        config_manager.set_default_template_key("phlox_01")
+        config_manager.set_default_template_key("siyadascribe_01")
         response = client.post("/api/templates", json=_protected_template_payload("consult_01"))
         assert response.status_code == 200
         assert response.json()["updated_keys"]["consult_01"] == "custom_consult_1"
-        assert config_manager.get_default_template_key() == "phlox_01"
+        assert config_manager.get_default_template_key() == "siyadascribe_01"
     finally:
         config_manager.set_default_template_key(original_default)
 
 
 def test_save_templates_fork_update_bumps_lineage(monkeypatch):
     """Changed re-save of an existing fork version-bumps the fork, not the original."""
-    monkeypatch.setattr("server.api.templates.template_exists", lambda key: key == "custom_phlox_1")
-    monkeypatch.setattr("server.api.templates.update_template", lambda _t: "custom_phlox_2")
+    monkeypatch.setattr(
+        "server.api.templates.template_exists", lambda key: key == "custom_siyadascribe_1"
+    )
+    monkeypatch.setattr("server.api.templates.update_template", lambda _t: "custom_siyadascribe_2")
 
-    response = client.post("/api/templates", json=_protected_template_payload("phlox_01"))
+    response = client.post("/api/templates", json=_protected_template_payload("siyadascribe_01"))
     assert response.status_code == 200
     data = response.json()
-    assert data["updated_keys"]["phlox_01"] == "custom_phlox_2"
+    assert data["updated_keys"]["siyadascribe_01"] == "custom_siyadascribe_2"
     assert any("Updated template" in d for d in data["details"])
 
 
 def test_save_templates_fork_of_legacy_version_sibling(monkeypatch):
-    """Editing a legacy user version (phlox_05) forks to custom_phlox_1 with content carried."""
+    """Editing a legacy user version (siyadascribe_05) forks to custom_siyadascribe_1 with content carried."""
     from server.database.config.manager import config_manager
 
     saved = {}
@@ -180,15 +184,17 @@ def test_save_templates_fork_of_legacy_version_sibling(monkeypatch):
     monkeypatch.setattr("server.api.templates.template_exists", lambda _key: False)
     monkeypatch.setattr("server.api.templates.save_template", fake_save_template)
 
-    original_default = config_manager.get_default_template_key() or "phlox_01"
+    original_default = config_manager.get_default_template_key() or "siyadascribe_01"
     try:
-        config_manager.set_default_template_key("phlox_05")
-        payload = _protected_template_payload("phlox_05")
+        config_manager.set_default_template_key("siyadascribe_05")
+        payload = _protected_template_payload("siyadascribe_05")
         response = client.post("/api/templates", json=payload)
         assert response.status_code == 200
-        assert saved["key"] == "custom_phlox_1"  # base-stripped, not custom_phlox_05_1
-        assert response.json()["updated_keys"]["phlox_05"] == "custom_phlox_1"
-        assert config_manager.get_default_template_key() == "custom_phlox_1"
+        assert (
+            saved["key"] == "custom_siyadascribe_1"
+        )  # base-stripped, not custom_siyadascribe_05_1
+        assert response.json()["updated_keys"]["siyadascribe_05"] == "custom_siyadascribe_1"
+        assert config_manager.get_default_template_key() == "custom_siyadascribe_1"
     finally:
         config_manager.set_default_template_key(original_default)
 
@@ -248,7 +254,7 @@ def test_fork_shadows_original_in_get_all():
 
 
 def test_unrelated_custom_prefix_does_not_shadow():
-    """custom_phlox_review_1 is not a phlox fork and must not hide phlox_01."""
+    """custom_siyadascribe_review_1 is not a siyadascribe fork and must not hide siyadascribe_01."""
     import json as jsonlib
     from datetime import datetime
 
@@ -262,20 +268,22 @@ def test_unrelated_custom_prefix_does_not_shadow():
             cur.execute(
                 "INSERT OR REPLACE INTO clinical_templates "
                 "(template_key, template_name, fields, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-                ("custom_phlox_review_1", "Custom Phlox Review", fields, now, now),
+                ("custom_siyadascribe_review_1", "Custom SiyadaScribe Review", fields, now, now),
             )
         keys = [t["template_key"] for t in repo.get_all_templates()]
-        assert "phlox_01" in keys  # not shadowed by the unrelated name
+        assert "siyadascribe_01" in keys  # not shadowed by the unrelated name
     finally:
         with get_db().transaction() as cur:
             cur.execute(
-                "DELETE FROM clinical_templates WHERE template_key = 'custom_phlox_review_1'"
+                "DELETE FROM clinical_templates WHERE template_key = 'custom_siyadascribe_review_1'"
             )
 
 
 def test_adaptive_instructions_reject_protected_template():
     """Adaptive-instruction writes (prompt-injection channel) must 403 for protected keys."""
-    response = client.post("/api/templates/phlox_01/fields/field/adaptive-instructions/reset")
+    response = client.post(
+        "/api/templates/siyadascribe_01/fields/field/adaptive-instructions/reset"
+    )
     assert response.status_code == 403
     response = client.post("/api/templates/soap_01/fields/field/adaptive-instructions/consolidate")
     assert response.status_code == 403
@@ -286,7 +294,7 @@ def test_generate_unique_template_key_never_protected(monkeypatch):
     from server.nlp_tools.templates import generate_unique_template_key
 
     monkeypatch.setattr("server.nlp_tools.templates.template_exists", lambda _k, **_kw: False)
-    assert generate_unique_template_key("Phlox") == "custom_phlox_1"
+    assert generate_unique_template_key("SiyadaScribe") == "custom_siyadascribe_1"
     assert generate_unique_template_key("SOAP Note") == "custom_soap_note_1"
     assert generate_unique_template_key("Progress Review") == "custom_progress_review_1"
     assert generate_unique_template_key("Cardiology") == "cardiology_1"
@@ -402,28 +410,30 @@ def test_reset_fork_repoints_active_default():
     from server.database.core.connection import get_db
     from server.database.repositories import templates as repo
 
-    _seed_fork_row("custom_phlox_1")
-    original = config_manager.get_default_template_key() or "phlox_01"
+    _seed_fork_row("custom_siyadascribe_1")
+    original = config_manager.get_default_template_key() or "siyadascribe_01"
     try:
-        config_manager.set_default_template_key("custom_phlox_1")
-        response = client.delete("/api/templates/custom_phlox_1")
+        config_manager.set_default_template_key("custom_siyadascribe_1")
+        response = client.delete("/api/templates/custom_siyadascribe_1")
         assert response.status_code == 200
 
-        assert config_manager.get_default_template_key() == "phlox_01"
+        assert config_manager.get_default_template_key() == "siyadascribe_01"
         with get_db().read() as cur:
             cur.execute(
-                "SELECT deleted FROM clinical_templates WHERE template_key = 'custom_phlox_1'"
+                "SELECT deleted FROM clinical_templates WHERE template_key = 'custom_siyadascribe_1'"
             )
             assert cur.fetchone()["deleted"] == 1  # soft-deleted, history intact
         keys = [t["template_key"] for t in repo.get_all_templates()]
-        assert "phlox_01" in keys  # un-shadowed
-        assert "custom_phlox_1" not in keys
+        assert "siyadascribe_01" in keys  # un-shadowed
+        assert "custom_siyadascribe_1" not in keys
     finally:
         config_manager.set_default_template_key(original)
         with get_db().transaction() as cur:
-            cur.execute("DELETE FROM clinical_templates WHERE template_key = 'custom_phlox_1'")
             cur.execute(
-                "UPDATE clinical_templates SET deleted = FALSE WHERE template_key = 'phlox_01'"
+                "DELETE FROM clinical_templates WHERE template_key = 'custom_siyadascribe_1'"
+            )
+            cur.execute(
+                "UPDATE clinical_templates SET deleted = FALSE WHERE template_key = 'siyadascribe_01'"
             )
 
 
@@ -433,12 +443,12 @@ def test_reset_fork_not_default_leaves_pointer():
     from server.database.core.connection import get_db
 
     _seed_fork_row("custom_consult_1")
-    original = config_manager.get_default_template_key() or "phlox_01"
+    original = config_manager.get_default_template_key() or "siyadascribe_01"
     try:
-        config_manager.set_default_template_key("phlox_01")
+        config_manager.set_default_template_key("siyadascribe_01")
         response = client.delete("/api/templates/custom_consult_1")
         assert response.status_code == 200
-        assert config_manager.get_default_template_key() == "phlox_01"
+        assert config_manager.get_default_template_key() == "siyadascribe_01"
         with get_db().read() as cur:
             cur.execute(
                 "SELECT deleted FROM clinical_templates WHERE template_key = 'custom_consult_1'"
@@ -459,12 +469,12 @@ def test_delete_plain_custom_template_no_repoint():
     from server.database.core.connection import get_db
 
     _seed_fork_row("cardiology_1")
-    original = config_manager.get_default_template_key() or "phlox_01"
+    original = config_manager.get_default_template_key() or "siyadascribe_01"
     try:
-        config_manager.set_default_template_key("phlox_01")
+        config_manager.set_default_template_key("siyadascribe_01")
         response = client.delete("/api/templates/cardiology_1")
         assert response.status_code == 200
-        assert config_manager.get_default_template_key() == "phlox_01"
+        assert config_manager.get_default_template_key() == "siyadascribe_01"
     finally:
         config_manager.set_default_template_key(original)
         with get_db().transaction() as cur:

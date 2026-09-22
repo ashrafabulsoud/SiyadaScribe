@@ -1,5 +1,5 @@
 class DefaultLetters:
-    """Default letter templates for Phlox."""
+    """Default letter templates for SiyadaScribe."""
 
     # Dictation template instructions
     DICTATION_INSTRUCTIONS = (

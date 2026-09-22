@@ -28,7 +28,7 @@ def _build_app() -> FastAPI:
 
 def _docker_client(monkeypatch) -> TestClient:
     monkeypatch.setattr("server.constants.IS_DOCKER", True)
-    monkeypatch.setattr("server.constants.PHLOX_ALLOW_UNAUTHENTICATED", False)
+    monkeypatch.setattr("server.constants.SIYADASCRIBE_ALLOW_UNAUTHENTICATED", False)
     return TestClient(_build_app())
 
 

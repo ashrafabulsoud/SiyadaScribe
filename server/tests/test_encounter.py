@@ -111,10 +111,17 @@ def _seed_history_family(test_db, monkeypatch):
     monkeypatch.setattr(encounter, "get_db", lambda: test_db)
     monkeypatch.setattr(templates_repo, "get_db", lambda: test_db)
     _seed_template_rows(
-        test_db, "phlox_01", "phlox_05", "custom_phlox_1", "soap_01", "custom_phlox_things_1"
+        test_db,
+        "siyadascribe_01",
+        "siyadascribe_05",
+        "custom_siyadascribe_1",
+        "soap_01",
+        "custom_siyadascribe_things_1",
     )
     with test_db.transaction() as cursor:
-        for i, key in enumerate(("phlox_01", "phlox_05", "custom_phlox_1", "soap_01")):
+        for i, key in enumerate(
+            ("siyadascribe_01", "siyadascribe_05", "custom_siyadascribe_1", "soap_01")
+        ):
             cursor.execute(
                 "INSERT INTO encounters (ur_number, encounter_date, template_key, template_data) "
                 "VALUES (?, ?, ?, ?)",
@@ -135,12 +142,17 @@ def _seed_template_rows(test_db, *keys):
 
 
 def test_history_family_spans_versions_and_forks(test_db, monkeypatch):
-    """custom_phlox / phlox queries return the whole phlox lineage, including legacy user edits."""
+    """custom_siyadascribe / siyadascribe queries return the whole siyadascribe lineage, including legacy user edits."""
     _seed_history_family(test_db, monkeypatch)
-    for query_key in ("phlox_01", "phlox_05", "custom_phlox_1", "phlox"):
+    for query_key in (
+        "siyadascribe_01",
+        "siyadascribe_05",
+        "custom_siyadascribe_1",
+        "siyadascribe",
+    ):
         rows = encounter.get_patient_history("UR1", query_key)
         keys = {r["template_key"] for r in rows}
-        assert keys == {"phlox_01", "phlox_05", "custom_phlox_1"}, (
+        assert keys == {"siyadascribe_01", "siyadascribe_05", "custom_siyadascribe_1"}, (
             f"query '{query_key}' returned {keys}"
         )
 
@@ -150,14 +162,14 @@ def test_history_family_excludes_unrelated_and_other_templates(test_db, monkeypa
     rows = encounter.get_patient_history("UR1", "soap_01")
     assert {r["template_key"] for r in rows} == {"soap_01"}
 
-    # Unrelated /generate name that merely starts with "custom_phlox"
+    # Unrelated /generate name that merely starts with "custom_siyadascribe"
     with test_db.transaction() as cursor:
         cursor.execute(
             "INSERT INTO encounters (ur_number, encounter_date, template_key) VALUES (?, ?, ?)",
-            ("UR1", "2024-05-01", "custom_phlox_things_1"),
+            ("UR1", "2024-05-01", "custom_siyadascribe_things_1"),
         )
-    rows = encounter.get_patient_history("UR1", "custom_phlox_things_1")
-    assert {r["template_key"] for r in rows} == {"custom_phlox_things_1"}
+    rows = encounter.get_patient_history("UR1", "custom_siyadascribe_things_1")
+    assert {r["template_key"] for r in rows} == {"custom_siyadascribe_things_1"}
 
 
 def test_history_family_plain_custom_base_stays_isolated(test_db, monkeypatch):

@@ -3,7 +3,7 @@ import { useTranscription } from "../../utils/hooks/useTranscription";
 import { settingsApi } from "../../utils/api/settingsApi";
 import { AudioRecorder } from "../../utils/audioRecorder";
 
-const SCRIBE_MODE_STORAGE_KEY = "phlox-scribe-mode";
+const SCRIBE_MODE_STORAGE_KEY = "siyadascribe-scribe-mode";
 
 // Hook to manage scribe state and logic
 // This can be used by ScribePillBox to control recording

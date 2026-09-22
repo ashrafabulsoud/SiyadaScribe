@@ -34,7 +34,7 @@ server/.venv/
 server/.pytest_cache/
 server/.ruff_cache/
 server/dist/
-server/phlox_server.egg-info/
+server/siyadascribe_server.egg-info/
 **/__pycache__
 **/*.pyc
 **/*.pyo

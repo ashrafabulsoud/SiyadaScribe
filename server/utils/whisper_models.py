@@ -215,7 +215,7 @@ class WhisperModelManager:
                 httpx.AsyncClient(
                     timeout=timeout,
                     follow_redirects=True,
-                    headers={"User-Agent": "phlox"},
+                    headers={"User-Agent": "siyadascribe"},
                 ) as client,
                 client.stream("GET", url) as response,
             ):

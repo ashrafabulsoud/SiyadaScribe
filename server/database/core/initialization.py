@@ -1,4 +1,4 @@
-"""Database initialization functions for Phlox.
+"""Database initialization functions for SiyadaScribe.
 
 This module handles initialization tasks that run after migrations,
 such as creating default templates and settings.
@@ -80,24 +80,24 @@ def initialize_templates(cursor, _db):
 
 
 def set_initial_default_template(cursor, _db):
-    """Set the initial default template to the latest Phlox template.
+    """Set the initial default template to the latest SiyadaScribe template.
 
     Args:
         cursor: Database cursor
         _db: Database connection (unused; commit owned by caller's transaction)
     """
     try:
-        # Get the latest non-deleted Phlox template
+        # Get the latest non-deleted SiyadaScribe template
         cursor.execute(
-            "SELECT template_key FROM clinical_templates WHERE template_key LIKE 'phlox%' AND (deleted IS NULL OR deleted != 1) ORDER BY created_at DESC LIMIT 1"
+            "SELECT template_key FROM clinical_templates WHERE template_key LIKE 'siyadascribe%' AND (deleted IS NULL OR deleted != 1) ORDER BY created_at DESC LIMIT 1"
         )
-        phlox_template = cursor.fetchone()
+        siyadascribe_template = cursor.fetchone()
 
-        if not phlox_template:
-            logging.error("No valid Phlox template found in the database")
+        if not siyadascribe_template:
+            logging.error("No valid SiyadaScribe template found in the database")
             return
 
-        default_template_key = phlox_template["template_key"]
+        default_template_key = siyadascribe_template["template_key"]
 
         # Check if user_settings table is empty
         cursor.execute("SELECT COUNT(*) FROM user_settings")

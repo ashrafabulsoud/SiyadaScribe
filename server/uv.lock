@@ -890,7 +890,7 @@ wheels = [
 ]
 
 [[package]]
-name = "phlox-server"
+name = "siyadascribe-server"
 version = "2.4.2"
 source = { virtual = "." }
 dependencies = [
@@ -955,8 +955,8 @@ requires-dist = [
     { name = "mcp", marker = "extra == 'rag'", specifier = "==1.28.1" },
     { name = "numpy", marker = "extra == 'rag'", specifier = "==2.5.1" },
     { name = "openai", specifier = "==2.48.0" },
-    { name = "phlox-server", extras = ["rag"], marker = "extra == 'ocr'" },
-    { name = "phlox-server", extras = ["rag", "ocr"], marker = "extra == 'docker'" },
+    { name = "siyadascribe-server", extras = ["rag"], marker = "extra == 'ocr'" },
+    { name = "siyadascribe-server", extras = ["rag", "ocr"], marker = "extra == 'docker'" },
     { name = "pillow", marker = "extra == 'ocr'", specifier = "==12.3.0" },
     { name = "platformdirs", specifier = "==4.10.0" },
     { name = "pydantic", specifier = "==2.12.5" },

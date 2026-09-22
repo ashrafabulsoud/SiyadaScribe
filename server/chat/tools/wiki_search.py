@@ -36,7 +36,7 @@ async def search_wikipedia(query: str, max_results: int = 3) -> list[dict]:
 
     # Wikipedia API requires a User-Agent header
     headers = {
-        "User-Agent": "PhloxMedicalBot/1.0 (https://github.com/phlox-medical; bot@phlox.example)"
+        "User-Agent": "SiyadaScribeMedicalBot/1.0 (https://github.com/ashrafabulsoud/SiyadaScribe; bot@siyadascribe.example)"
     }
 
     async with httpx.AsyncClient() as client:

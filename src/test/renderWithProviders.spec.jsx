@@ -4,7 +4,7 @@ import { renderWithProviders } from "./utils";
 
 describe("renderWithProviders", () => {
     it("renders Chakra children", () => {
-        const { getByText } = renderWithProviders(<Text>hello phlox</Text>);
-        expect(getByText("hello phlox")).toBeInTheDocument();
+        const { getByText } = renderWithProviders(<Text>hello siyadascribe</Text>);
+        expect(getByText("hello siyadascribe")).toBeInTheDocument();
     });
 });

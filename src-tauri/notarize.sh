@@ -54,7 +54,7 @@ sign_server_dist() {
     echo "Signing all binaries in server_dist..."
 
     # Sign the main server binary
-    sign_binary "$server_dist/phlox-server"
+    sign_binary "$server_dist/siyadascribe-server"
 
     # Sign all .so files and other executables
     find "$server_dist" -name "*.so" -exec codesign --force --options runtime --timestamp --sign "$SIGNING_IDENTITY" {} \;
@@ -159,8 +159,8 @@ if [ "${BASH_SOURCE[0]}" == "${0}" ]; then
     echo "✅ All binaries signed"
     echo ""
     echo "To notarize the final app bundle after building:"
-    echo "  ./notarize.sh notarize path/to/Phlox.app"
+    echo "  ./notarize.sh notarize path/to/SiyadaScribe.app"
     echo ""
     echo "Or for a DMG:"
-    echo "  ./notarize.sh notarize path/to/Phlox.dmg"
+    echo "  ./notarize.sh notarize path/to/SiyadaScribe.dmg"
 fi

@@ -1,4 +1,4 @@
-"""Database backup functionality for Phlox.
+"""Database backup functionality for SiyadaScribe.
 
 Provides automatic backup of the SQLite database before migrations run,
 with rotation to prevent disk space issues.

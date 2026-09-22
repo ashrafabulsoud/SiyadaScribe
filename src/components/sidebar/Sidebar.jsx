@@ -267,7 +267,7 @@ const Sidebar = ({
                 >
                   <Image
                     src="/logo.webp"
-                    alt="Phlox logo"
+                    alt="SiyadaScribe logo"
                     width="100%"
                     height="100%"
                     mt="2px"
@@ -301,7 +301,7 @@ const Sidebar = ({
                 openDelay={700}
               >
               <Flex align="center" gap={3}>
-                <Image src="/logo.webp" alt="Phlox logo" width="28px" />
+                <Image src="/logo.webp" alt="SiyadaScribe logo" width="28px" />
                 <Text
                   fontFamily="heading"
                   fontSize="3xl"
@@ -309,7 +309,7 @@ const Sidebar = ({
                   color="sidebar.text"
                   letterSpacing="-0.02em"
                 >
-                  Phlox
+                  SiyadaScribe
                 </Text>
               </Flex>
               </Tooltip>

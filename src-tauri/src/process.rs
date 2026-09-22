@@ -5,7 +5,7 @@ use std::time::Duration;
 /// Get the PID file path for a service.
 
 fn pid_file_for_service(service: &str) -> Option<PathBuf> {
-    crate::pm::phlox_dir().map(|dir| dir.join(format!("{}.pid", service)))
+    crate::pm::siyadascribe_dir().map(|dir| dir.join(format!("{}.pid", service)))
 }
 
 /// Check if a specific PID is alive
@@ -149,10 +149,10 @@ pub fn kill_all_processes() {
 
     // Fallback: kill by name pattern for any orphaned processes.
     // The embedding server uses the same binary as the LLM server, so
-    // phlox-llama-server covers both.
-    kill_process_by_name("phlox-llama-server", "phlox-llama-server");
-    kill_process_by_name("phlox-whisper-server", "phlox-whisper-server");
-    kill_process_by_name("phlox-server", "phlox-server");
+    // siyadascribe-llama-server covers both.
+    kill_process_by_name("siyadascribe-llama-server", "siyadascribe-llama-server");
+    kill_process_by_name("siyadascribe-whisper-server", "siyadascribe-whisper-server");
+    kill_process_by_name("siyadascribe-server", "siyadascribe-server");
 
     // Final wait to ensure all processes are gone
     thread::sleep(Duration::from_millis(500));
@@ -161,10 +161,10 @@ pub fn kill_all_processes() {
 }
 
 pub fn cleanup_stale_files() {
-    if let Some(phlox_dir) = crate::pm::phlox_dir() {
+    if let Some(siyadascribe_dir) = crate::pm::siyadascribe_dir() {
         // Clean up PID files
         for service in ["llama", "whisper", "server", "embedding"] {
-            let pid_file = phlox_dir.join(format!("{}.pid", service));
+            let pid_file = siyadascribe_dir.join(format!("{}.pid", service));
             if pid_file.exists() {
                 let _ = std::fs::remove_file(&pid_file);
             }

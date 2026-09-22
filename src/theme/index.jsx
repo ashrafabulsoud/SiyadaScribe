@@ -81,24 +81,24 @@ globalCss[".chakra-button svg"] = {
 // One-shot mount animations
 globalCss[".anim-fade-slide-up"] = {
     animation:
-        "phloxFadeSlideUp 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) both",
+        "siyadascribeFadeSlideUp 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) both",
 };
 globalCss[".anim-fade-slide-right"] = {
-    animation: "phloxFadeSlideRight 0.4s ease-out both",
+    animation: "siyadascribeFadeSlideRight 0.4s ease-out both",
 };
 globalCss[".anim-fade-scale"] = {
     animation:
-        "phloxFadeScaleIn 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94) both",
+        "siyadascribeFadeScaleIn 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94) both",
 };
 globalCss[".anim-emerge-spring"] = {
     animation:
-        "phloxEmergeSpring 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28) both",
+        "siyadascribeEmergeSpring 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28) both",
 };
 
 // Staggered entrance
 globalCss[".anim-stagger > *"] = {
     animation:
-        "phloxFadeSlideUp 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) both",
+        "siyadascribeFadeSlideUp 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) both",
 };
 for (let i = 1; i <= 8; i++) {
     globalCss[`.anim-stagger > *:nth-of-type(${i})`] = {
@@ -110,19 +110,19 @@ export const system = createSystem(defaultConfig, {
     globalCss,
     theme: {
         keyframes: {
-            phloxFadeSlideUp: {
+            siyadascribeFadeSlideUp: {
                 from: { opacity: "0", transform: "translateY(20px)" },
                 to: { opacity: "1", transform: "translateY(0)" },
             },
-            phloxFadeSlideRight: {
+            siyadascribeFadeSlideRight: {
                 from: { opacity: "0", transform: "translateX(50px)" },
                 to: { opacity: "1", transform: "translateX(0)" },
             },
-            phloxFadeScaleIn: {
+            siyadascribeFadeScaleIn: {
                 from: { opacity: "0", transform: "scale(0.9)" },
                 to: { opacity: "1", transform: "scale(1)" },
             },
-            phloxEmergeSpring: {
+            siyadascribeEmergeSpring: {
                 from: {
                     opacity: "0",
                     transform: "scale(0.8) translateX(20px)",

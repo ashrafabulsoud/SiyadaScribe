@@ -167,7 +167,7 @@ const SplashScreen = ({ onComplete }) => {
       await settingsApi.markSplashCompleted();
       toaster.create({
         title: "Setup Complete!",
-        description: "You're ready to start using Phlox.",
+        description: "You're ready to start using SiyadaScribe.",
         type: "success",
         duration: 5000,
       });
@@ -253,7 +253,7 @@ const SplashScreen = ({ onComplete }) => {
 
         {/* Header — logo, title, description, progress */}
         <VStack gap={2} position="relative" zIndex={1} flexShrink={0} align="center">
-          <Image src="/logo.webp" alt="Phlox" height="40px" width="auto" />
+          <Image src="/logo.webp" alt="SiyadaScribe" height="40px" width="auto" />
           <Heading as="h2" size="md" color="textPrimary" textAlign="center">
             {STEP_TITLES[currentStep]}
           </Heading>
@@ -327,7 +327,7 @@ const SplashScreen = ({ onComplete }) => {
               fontWeight: "600",
             }}
           >
-            {currentStepIndex === totalSteps - 1 ? "Start Using Phlox" : "Continue"}
+            {currentStepIndex === totalSteps - 1 ? "Start Using SiyadaScribe" : "Continue"}
             {currentStepIndex !== totalSteps - 1 && <FaArrowRight />}
           </Button>
         </Flex>

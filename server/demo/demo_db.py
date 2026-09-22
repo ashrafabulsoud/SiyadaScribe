@@ -52,7 +52,7 @@ def initialize_templates():
 
 
 def initialize_fake_patients():
-    """Initialize database with fake patients using the Phlox template."""
+    """Initialize database with fake patients using the SiyadaScribe template."""
     today = datetime.date.today()
     yesterday = today - datetime.timedelta(days=1)
 
@@ -88,7 +88,7 @@ def initialize_fake_patients():
             "ur_number": patient_data["ur_number"],
             "gender": patient_data["gender"],
             "encounter_date": encounter_date.strftime("%Y-%m-%d"),
-            "template_key": "phlox_01",  # Using Phlox template for example patients
+            "template_key": "siyadascribe_01",  # Using SiyadaScribe template for example patients
             "template_data": json.dumps(template_data),
             "raw_transcription": patient_data["transcript"],
             "transcription_duration": round(random.uniform(5.0, 15.0), 2),  # nosec B311

@@ -129,7 +129,7 @@ def test_guard_warns_on_deprecated_passphrase(caplog):
         trusted_proxy_ips=[],
         allow_unauthenticated=False,
     )
-    assert any("PHLOX_PASSPHRASE" in r.message for r in caplog.records)
+    assert any("SIYADASCRIBE_PASSPHRASE" in r.message for r in caplog.records)
 
 
 # --- login endpoint (session flow covered in test_auth.py) ---------------------
@@ -138,7 +138,7 @@ def test_guard_warns_on_deprecated_passphrase(caplog):
 def test_login_reachable_without_token(monkeypatch):
     """Login must bypass the token check WITHOUT entering the shared skip list."""
     monkeypatch.setattr("server.constants.IS_DOCKER", True)
-    monkeypatch.setattr("server.constants.PHLOX_ALLOW_UNAUTHENTICATED", False)
+    monkeypatch.setattr("server.constants.SIYADASCRIBE_ALLOW_UNAUTHENTICATED", False)
     client = TestClient(_build_app(LocalTokenMiddleware))
     resp = client.post("/api/auth/login", json={"username": "nobody", "password": "nope"})
     assert resp.status_code == 401  # from the handler, not middleware
@@ -176,7 +176,7 @@ def test_middleware_token_matrix(monkeypatch):
 def test_middleware_docker_requires_session(monkeypatch):
     """Docker mode no longer passes through without a token — 401 instead."""
     monkeypatch.setattr("server.constants.IS_DOCKER", True)
-    monkeypatch.setattr("server.constants.PHLOX_ALLOW_UNAUTHENTICATED", False)
+    monkeypatch.setattr("server.constants.SIYADASCRIBE_ALLOW_UNAUTHENTICATED", False)
     set_request_token(None)
     client = TestClient(_build_app(LocalTokenMiddleware))
     assert client.get("/api/note/list").status_code == 401
@@ -334,7 +334,7 @@ async def test_trusted_proxy_ignores_spoofed_leftmost_xff(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_trusted_proxy_walks_multiple_trusted_hops(monkeypatch):
-    """Every proxy hop between Phlox and the client is skipped right-to-left."""
+    """Every proxy hop between SiyadaScribe and the client is skipped right-to-left."""
     monkeypatch.setattr("server.constants.TRUSTED_PROXY_IPS", ["10.0.0.0/8"])
     app = _build_app(TrustedProxyMiddleware)
 

@@ -8,5 +8,5 @@
 ollama
 *.dylib
 /whisper-cpp
-phlox-whisper-server
-phlox-llama-server
+siyadascribe-whisper-server
+siyadascribe-llama-server

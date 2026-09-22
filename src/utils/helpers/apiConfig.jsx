@@ -42,7 +42,7 @@ export const getApiBaseUrl = async () => {
 export const getRequestToken = async () => {
   if (!isTauri()) {
     // Docker/browser mode - token stored after passphrase login
-    return localStorage.getItem("phlox_api_token");
+    return localStorage.getItem("siyadascribe_api_token");
   }
 
   // Return cached token if available
@@ -63,11 +63,11 @@ export const getRequestToken = async () => {
 };
 
 export const setStoredToken = (token) => {
-  localStorage.setItem("phlox_api_token", token);
+  localStorage.setItem("siyadascribe_api_token", token);
 };
 
 export const clearStoredToken = () => {
-  localStorage.removeItem("phlox_api_token");
+  localStorage.removeItem("siyadascribe_api_token");
 };
 
 // Helper function to construct full API URL
@@ -81,7 +81,7 @@ export const resetApiConfig = () => {
   cachedServerPort = null;
   cachedRequestToken = null;
   // Browser mode: drop any stale login token too
-  localStorage.removeItem("phlox_api_token");
+  localStorage.removeItem("siyadascribe_api_token");
 };
 
 export { isTauri };

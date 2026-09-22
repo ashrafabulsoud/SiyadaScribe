@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { authApi } from "../api/authApi";
 import { isTauri } from "../helpers/apiConfig";
 
-const STORAGE_KEY = "phlox-patient-scope";
+const STORAGE_KEY = "siyadascribe-patient-scope";
 
 // Admin "all vs mine" patient scope, persisted across sessions.
 // Desktop (Tauri) is always single-admin, so the toggle is hidden, the

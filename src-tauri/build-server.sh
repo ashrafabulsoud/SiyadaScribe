@@ -35,24 +35,24 @@ fi
 if [[ "$OSTYPE" == "darwin"* ]]; then
     if [[ $(uname -m) == "arm64" ]]; then
         ARCH="arm64"
-        TARGET="phlox-server-aarch64-apple-darwin"
+        TARGET="siyadascribe-server-aarch64-apple-darwin"
         echo "Detected Apple Silicon (ARM64)"
     else
         ARCH="x86_64"
-        TARGET="phlox-server-x86_64-apple-darwin"
+        TARGET="siyadascribe-server-x86_64-apple-darwin"
         echo "Detected Intel x86_64"
     fi
 elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
     ARCH="x86_64"
-    TARGET="phlox-server-x86_64-unknown-linux-gnu"
+    TARGET="siyadascribe-server-x86_64-unknown-linux-gnu"
     echo "Detected Linux x86_64"
 elif [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "win32" ]]; then
     ARCH="x86_64"
-    TARGET="phlox-server-x86_64-pc-windows-msvc.exe"
+    TARGET="siyadascribe-server-x86_64-pc-windows-msvc.exe"
     echo "Detected Windows x86_64"
 else
     ARCH="arm64"
-    TARGET="phlox-server-aarch64-apple-darwin"
+    TARGET="siyadascribe-server-aarch64-apple-darwin"
     echo "Defaulting to Apple Silicon (ARM64)"
 fi
 
@@ -92,7 +92,7 @@ $NUITKA_CMD \
     --jobs=$JOBS \
     --mode=standalone \
     --output-dir=server/dist \
-    --output-filename=phlox-server \
+    --output-filename=siyadascribe-server \
     $([[ "$OSTYPE" == "darwin"* ]] && echo "--macos-target-arch=$ARCH") \
     --include-package=server \
     --include-module=sqlcipher3 \
@@ -129,15 +129,15 @@ cat > "$SCRIPT_DIR/binaries/$TARGET" << 'EOF'
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # On macOS app bundles, resources live in Contents/Resources/ while this
 # binary lives in Contents/MacOS/ — check both locations.
-if [ -f "$DIR/../Resources/server_dist/phlox-server" ]; then
-    exec "$DIR/../Resources/server_dist/phlox-server" "$@"
+if [ -f "$DIR/../Resources/server_dist/siyadascribe-server" ]; then
+    exec "$DIR/../Resources/server_dist/siyadascribe-server" "$@"
 else
-    exec "$DIR/server_dist/phlox-server" "$@"
+    exec "$DIR/server_dist/siyadascribe-server" "$@"
 fi
 EOF
 
 chmod +x "$SCRIPT_DIR/binaries/$TARGET"
-chmod +x "$SCRIPT_DIR/server_dist/phlox-server"
+chmod +x "$SCRIPT_DIR/server_dist/siyadascribe-server"
 
 # In debug mode, also copy to target/debug for dev mode (tauri dev)
 if [ "$DEBUG_MODE" = true ]; then
@@ -149,13 +149,13 @@ if [ "$DEBUG_MODE" = true ]; then
     cp "$PROJECT_DIR/CHANGELOG.md" "$SCRIPT_DIR/target/debug/server_dist/"
 
     # Create wrapper script for dev mode
-    cat > "$SCRIPT_DIR/target/debug/phlox-server" << 'EOF'
+    cat > "$SCRIPT_DIR/target/debug/siyadascribe-server" << 'EOF'
 #!/bin/bash
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-echo "Python server wrapper: executing $DIR/server_dist/phlox-server" >&2
-exec "$DIR/server_dist/phlox-server" "$@"
+echo "Python server wrapper: executing $DIR/server_dist/siyadascribe-server" >&2
+exec "$DIR/server_dist/siyadascribe-server" "$@"
 EOF
-    chmod +x "$SCRIPT_DIR/target/debug/phlox-server"
+    chmod +x "$SCRIPT_DIR/target/debug/siyadascribe-server"
 fi
 
 # Sign binaries if on macOS with signing identity (release builds only)
@@ -170,7 +170,7 @@ if [[ "$OSTYPE" == "darwin"* ]] && [ "$DEBUG_MODE" != true ]; then
         # Sign the main server binary
         codesign --force --options runtime --timestamp \
             --sign "$SIGNING_IDENTITY" \
-            "$SCRIPT_DIR/server_dist/phlox-server"
+            "$SCRIPT_DIR/server_dist/siyadascribe-server"
 
         # Sign all .so and .dylib files
         find "$SCRIPT_DIR/server_dist" \( -name "*.so" -o -name "*.dylib" \) -exec \

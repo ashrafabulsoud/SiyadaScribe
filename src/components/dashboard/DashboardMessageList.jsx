@@ -114,7 +114,7 @@ const DashboardMessageList = ({
                                         <HStack gap={2} mb={0.5}>
                                             <Image
                                                 src="/logo.webp"
-                                                alt="Phlox Logo"
+                                                alt="SiyadaScribe Logo"
                                                 h="16px"
                                                 w="auto"
                                                 objectFit="contain"
@@ -124,7 +124,7 @@ const DashboardMessageList = ({
                                                 fontWeight="semibold"
                                                 color="overlay0"
                                             >
-                                                Phlox Assistant
+                                                SiyadaScribe Assistant
                                             </Text>
                                         </HStack>
                                     )}

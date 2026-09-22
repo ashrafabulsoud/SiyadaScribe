@@ -111,7 +111,7 @@ const FloatingActionMenu = ({
             {/* Chat button */}
             {isChatEnabled() && (
                 <Tooltip
-                    content="Chat with Phlox"
+                    content="Chat with SiyadaScribe"
                     positioning={{
                         placement: "left",
                     }}

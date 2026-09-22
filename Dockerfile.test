@@ -11,8 +11,8 @@ WORKDIR /usr/src/app
 RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
-# Create phlox user
-RUN useradd -m -u 1000 phlox
+# Create siyadascribe user
+RUN useradd -m -u 1000 siyadascribe
 
 # First copy dependency files to leverage Docker cache
 COPY server/pyproject.toml server/uv.lock /usr/src/app/server/
@@ -33,12 +33,12 @@ ENV PATH=/usr/src/app/server/.venv/bin:$PATH
 # Create directories and set ownership
 RUN mkdir -p /usr/src/app/build /usr/src/app/data && \
     echo "<html><body>Test</body></html>" > /usr/src/app/build/index.html && \
-    chown -R phlox:phlox /usr/src/app
+    chown -R siyadascribe:siyadascribe /usr/src/app
 
 # Create the run_tests.sh script
 RUN echo '#!/bin/bash\n\
 # Delete test database if it exists\n\
-rm -f /usr/src/app/data/test_phlox_database.sqlite\n\
+rm -f /usr/src/app/data/test_siyadascribe_database.sqlite\n\
 \n\
 PYTHONPATH=/usr/src/app pytest \
     --verbose \
@@ -51,16 +51,16 @@ PYTHONPATH=/usr/src/app pytest \
 test_exit_code=$?\n\
 \n\
 # Delete test database after tests\n\
-rm -f /usr/src/app/data/test_phlox_database.sqlite\n\
+rm -f /usr/src/app/data/test_siyadascribe_database.sqlite\n\
 \n\
 exit $test_exit_code' > /usr/src/app/run_tests.sh && \
     chmod +x /usr/src/app/run_tests.sh
 
 # Change permissions
-RUN chown -R phlox:phlox /usr/src/app
+RUN chown -R siyadascribe:siyadascribe /usr/src/app
 
-# Switch to phlox user
-USER phlox
+# Switch to siyadascribe user
+USER siyadascribe
 
 # Run tests using the script
 ENTRYPOINT ["/usr/src/app/run_tests.sh"]

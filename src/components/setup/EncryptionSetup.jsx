@@ -177,7 +177,7 @@ const EncryptionSetup = ({ onComplete }) => {
         />
 
         <VStack gap={2} position="relative" zIndex={1} flexShrink={0} align="center">
-          <Image src="/logo.webp" alt="Phlox" height="40px" width="auto" />
+          <Image src="/logo.webp" alt="SiyadaScribe" height="40px" width="auto" />
           <Heading as="h2" size="md" color="textPrimary" textAlign="center">
             {STEP_TITLES[SPLASH_STEPS.ENCRYPTION]}
           </Heading>

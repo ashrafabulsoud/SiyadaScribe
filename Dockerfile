@@ -34,8 +34,8 @@ RUN apt-get update && apt-get install -y \
     tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*
 
-# Create phlox user
-RUN useradd -m -u 1000 phlox
+# Create siyadascribe user
+RUN useradd -m -u 1000 siyadascribe
 
 # Copy the build output and Python server files
 COPY --from=build /usr/src/app/build ./build
@@ -46,7 +46,7 @@ COPY server/pyproject.toml server/uv.lock ./server/
 RUN mkdir -p /usr/src/app/data \
     /usr/src/app/static \
     /usr/src/app/temp && \
-    chown -R phlox:phlox /usr/src/app
+    chown -R siyadascribe:siyadascribe /usr/src/app
 
 # Install Python dependencies
 RUN uv sync --directory server --locked --no-dev --extra docker
@@ -58,10 +58,10 @@ RUN python -c "import tiktoken; tiktoken.get_encoding('cl100k_base')"
 COPY server/ ./server
 
 # Change permissions
-RUN chown -R phlox:phlox /usr/src/app
+RUN chown -R siyadascribe:siyadascribe /usr/src/app
 
-# Switch to phlox user
-USER phlox
+# Switch to siyadascribe user
+USER siyadascribe
 
 # Expose necessary ports
 EXPOSE 5000

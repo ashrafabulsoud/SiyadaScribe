@@ -63,11 +63,11 @@ RUN printf '%s\n' \
 '# Set default value if SERVER_HOST is not set, then export it for subshells' \
 'export SERVER_HOST=${SERVER_HOST:-0.0.0.0}' \
     'parallel --tag --line-buffer ::: "npm run start-react" "uvicorn server.server:app --reload --host $SERVER_HOST --port 5000 --no-proxy-headers"' \
-> /usr/local/bin/start-phlox-dev.sh && \
-chmod +x /usr/local/bin/start-phlox-dev.sh
+> /usr/local/bin/start-siyadascribe-dev.sh && \
+chmod +x /usr/local/bin/start-siyadascribe-dev.sh
 
 # Expose necessary ports
 EXPOSE 3000
 
 # Use the script as the CMD
-CMD ["/usr/local/bin/start-phlox-dev.sh"]
+CMD ["/usr/local/bin/start-siyadascribe-dev.sh"]

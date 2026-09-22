@@ -239,7 +239,7 @@ class LocalTokenMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request, call_next):
-        from server.constants import IS_DOCKER, PHLOX_ALLOW_UNAUTHENTICATED
+        from server.constants import IS_DOCKER, SIYADASCRIBE_ALLOW_UNAUTHENTICATED
         from server.database.repositories import users
         from server.utils.current_user import CurrentUser, set_current_user
         from server.utils.local_request_token import get_request_token
@@ -254,7 +254,7 @@ class LocalTokenMiddleware(BaseHTTPMiddleware):
         provided_token = auth_header[7:] if auth_header.startswith("Bearer ") else None
 
         if IS_DOCKER:
-            if PHLOX_ALLOW_UNAUTHENTICATED:
+            if SIYADASCRIBE_ALLOW_UNAUTHENTICATED:
                 # Explicit risk acceptance: resolve as implicit admin
                 user = users.ensure_implicit_admin()
             else:

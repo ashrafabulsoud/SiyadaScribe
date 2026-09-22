@@ -1,18 +1,18 @@
-# Contributing to Phlox
+# Contributing to SiyadaScribe
 
-Thanks for your interest in contributing! Phlox is an experimental, local-first project and contributions of all kinds are welcome.
+Thanks for your interest in contributing! SiyadaScribe is an experimental, local-first project and contributions of all kinds are welcome.
 
-Before getting started, please read the [Usage Warning](https://github.com/bloodworks-io/phlox#usage-warning-%EF%B8%8F) — Phlox is experimental software intended for educational and personal use.
+Before getting started, please read the [Usage Warning](https://github.com/ashrafabulsoud/SiyadaScribe#usage-warning-%EF%B8%8F) — SiyadaScribe is experimental software intended for educational and personal use.
 
 ## Ways to Contribute
 
-- **Bug reports & feature requests** — open an [Issue](https://github.com/bloodworks-io/phlox/issues). Include steps to reproduce, expected vs. actual behaviour, and your platform (macOS/Linux, desktop app or Docker).
-- **Code contributions** — fork the repo and open a [Pull Request](https://github.com/bloodworks-io/phlox/pulls).
-- **Translations** — help translate the Phlox interface into your language. See [Adding a language](#adding-a-language).
+- **Bug reports & feature requests** — open an [Issue](https://github.com/ashrafabulsoud/SiyadaScribe/issues). Include steps to reproduce, expected vs. actual behaviour, and your platform (macOS/Linux, desktop app or Docker).
+- **Code contributions** — fork the repo and open a [Pull Request](https://github.com/ashrafabulsoud/SiyadaScribe/pulls).
+- **Translations** — help translate the SiyadaScribe interface into your language. See [Adding a language](#adding-a-language).
 
 ## Development Setup
 
-See the [Setup guide](https://phlox.bloodworks.io/docs/setup) for full installation instructions. In short:
+See the [Setup guide](https://github.com/ashrafabulsoud/SiyadaScribe/tree/main/docs/setup.md) for full installation instructions. In short:
 
 ```bash
 make install        # install dependencies
@@ -23,7 +23,7 @@ Other useful targets are listed via `make help`.
 
 ## Adding a Language
 
-Phlox uses [i18next](https://www.i18next.com/) with `react-i18next`. UI strings live in JSON catalogs under `src/locales/<code>/` (e.g. `src/locales/en/common.json`). To add an interface translation:
+SiyadaScribe uses [i18next](https://www.i18next.com/) with `react-i18next`. UI strings live in JSON catalogs under `src/locales/<code>/` (e.g. `src/locales/en/common.json`). To add an interface translation:
 
 1. Copy `src/locales/en/` to `src/locales/<your-code>/` (ISO 639-1 code, e.g. `es`, `fr`).
 2. Translate the values in `common.json` — keep the keys and `{{interpolation}}` placeholders intact.
@@ -51,4 +51,4 @@ This repo has made extensive use of AI development tools, and AI-assisted contri
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the [MIT License](https://github.com/bloodworks-io/phlox/blob/main/LICENSE).
+By contributing, you agree that your contributions will be licensed under the [MIT License](https://github.com/ashrafabulsoud/SiyadaScribe/blob/main/LICENSE).

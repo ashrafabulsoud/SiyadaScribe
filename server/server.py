@@ -24,11 +24,11 @@ from server.constants import (
     IS_DEMO_MODE,
     IS_DOCKER,
     IS_TESTING,
-    PHLOX_ALLOW_UNAUTHENTICATED,
-    PHLOX_PASSPHRASE,
     PROXY_AUTH_ENABLED,
     PROXY_AUTH_USER_HEADER,
     RATE_LIMIT_ENABLED,
+    SIYADASCRIBE_ALLOW_UNAUTHENTICATED,
+    SIYADASCRIBE_PASSPHRASE,
     TRUSTED_PROXY_IPS,
 )
 from server.middleware import (
@@ -119,12 +119,12 @@ def validate_docker_auth(
         )
     if passphrase:
         logger.warning(
-            "PHLOX_PASSPHRASE is deprecated and ignored - user accounts are "
+            "SIYADASCRIBE_PASSPHRASE is deprecated and ignored - user accounts are "
             "created via first-run setup (/api/auth/setup)"
         )
     if allow_unauthenticated:
         logger.warning(
-            "PHLOX_ALLOW_UNAUTHENTICATED=true - all requests run as admin. "
+            "SIYADASCRIBE_ALLOW_UNAUTHENTICATED=true - all requests run as admin. "
             "Explicit risk acceptance."
         )
 
@@ -144,7 +144,7 @@ def initialize_and_get_app():
             from server.demo.demo_db import seed_demo_data_desktop
 
             seed_demo_data_desktop()
-            logger.info("Demo data seeded (PHLOX_DEMO_MODE).")
+            logger.info("Demo data seeded (SIYADASCRIBE_DEMO_MODE).")
         except Exception as e:  # pragma: no cover - never block startup
             logger.warning("Demo seeding skipped/failed: %s", e)
 
@@ -293,14 +293,14 @@ if IS_DOCKER:
 
     if not IS_TESTING:
         validate_docker_auth(
-            passphrase=PHLOX_PASSPHRASE,
+            passphrase=SIYADASCRIBE_PASSPHRASE,
             proxy_auth_enabled=PROXY_AUTH_ENABLED,
             trusted_proxy_ips=TRUSTED_PROXY_IPS,
-            allow_unauthenticated=PHLOX_ALLOW_UNAUTHENTICATED,
+            allow_unauthenticated=SIYADASCRIBE_ALLOW_UNAUTHENTICATED,
         )
 
     initialize_database()  # Uses env/secret
-    if PHLOX_ALLOW_UNAUTHENTICATED:
+    if SIYADASCRIBE_ALLOW_UNAUTHENTICATED:
         from server.database.repositories.users import ensure_implicit_admin
 
         ensure_implicit_admin()
@@ -378,12 +378,12 @@ def start_server_for_desktop():
     )
 
     # Start parent-PID watchdog
-    parent_pid = os.environ.get("PHLOX_PARENT_PID")
+    parent_pid = os.environ.get("SIYADASCRIBE_PARENT_PID")
     if parent_pid:
         try:
             start_parent_watchdog(int(parent_pid))
         except ValueError:
-            logger.warning("Invalid PHLOX_PARENT_PID: %r", parent_pid)
+            logger.warning("Invalid SIYADASCRIBE_PARENT_PID: %r", parent_pid)
 
     config = uvicorn.Config(
         app,

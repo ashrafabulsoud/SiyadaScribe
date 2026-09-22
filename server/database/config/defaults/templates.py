@@ -25,8 +25,8 @@ class DefaultTemplates:
         """Get all default templates."""
         return [
             {
-                "template_key": "phlox_01",
-                "template_name": "Phlox",
+                "template_key": "siyadascribe_01",
+                "template_name": "SiyadaScribe",
                 "fields": [
                     {
                         "field_key": "primary_history",

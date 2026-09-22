@@ -24,7 +24,7 @@ def _save(note_id_ur: str, user_id: int) -> int:
         last_name=f"Owner{user_id}",
         ur_number=note_id_ur,
         encounter_date="2026-01-01",
-        template_key="phlox_01",
+        template_key="siyadascribe_01",
         template_data={},
         raw_transcription="",
     )
@@ -157,7 +157,7 @@ def test_custom_templates_scoped_but_system_shared():
         assert get_template_by_key(key) is None  # A's custom is invisible to B
 
         # System/protected templates stay shared
-        assert get_template_by_key("phlox_01") is not None
+        assert get_template_by_key("siyadascribe_01") is not None
     finally:
         set_current_user(None)
         with get_db().transaction() as cursor:

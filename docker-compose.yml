@@ -1,14 +1,44 @@
 services:
-  app:
-    image: ghcr.io/bloodworks-io/phlox:latest
-    container_name: phlox
+  siyadascribe:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # Prefer a prebuilt image? Comment out `build:` above and use your registry:
+    # image: ghcr.io/ashrafabulsoud/siyadascribe:latest
     restart: unless-stopped
-    ports:
-      - "5000:5000"
     environment:
-      - DB_ENCRYPTION_KEY=${DB_ENCRYPTION_KEY} # Required: generate a strong random key
-      - TZ=${TZ} # e.g. America/New_York
-
-      # - RATE_LIMIT_ENABLED=true
+      # Required
+      - DB_ENCRYPTION_KEY=${DB_ENCRYPTION_KEY}
+      - TZ=${TZ}
+      # CORS — must match the origin you load SiyadaScribe from (needed for browser mic recording)
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
+      # Optional LLM tuning
+      - LLM_EXTRA_BODY=${LLM_EXTRA_BODY}
+      # Authentication: built-in by default (first visit creates the admin account).
+      # Optional forward-auth instead (Cloudflare Access / Authelia inject the user header);
+      # TRUSTED_PROXY_IPS is REQUIRED when PROXY_AUTH_ENABLED=true.
+      - PROXY_AUTH_ENABLED=${PROXY_AUTH_ENABLED}
+      - PROXY_AUTH_USER_HEADER=${PROXY_AUTH_USER_HEADER}
+      - PROXY_AUTH_ALLOWED_USERS=${PROXY_AUTH_ALLOWED_USERS}
+      - TRUSTED_PROXY_IPS=${TRUSTED_PROXY_IPS}
+      # Optional rate limiting
+      - RATE_LIMIT_ENABLED=${RATE_LIMIT_ENABLED}
     volumes:
-      - ./data:/usr/src/app/data # Persistent data (database, vectors)
+      - siyadascribe_data:/usr/src/app/data
+      - siyadascribe_logs:/usr/src/app/logs
+    networks:
+      - dokploy-network
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.siyadascribe.rule=Host(`${SIYADASCRIBE_DOMAIN}`)
+      - traefik.http.routers.siyadascribe.entrypoints=websecure
+      - traefik.http.routers.siyadascribe.tls.certresolver=letsencrypt
+      - traefik.http.services.siyadascribe.loadbalancer.server.port=5000
+
+volumes:
+  siyadascribe_data:
+  siyadascribe_logs:
+
+networks:
+  dokploy-network:
+    external: true

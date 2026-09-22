@@ -1,4 +1,4 @@
-//! In-process process manager for phlox sidecar services.
+//! In-process process manager for siyadascribe sidecar services.
 
 use serde::Serialize;
 use std::fs;
@@ -78,19 +78,19 @@ pub struct ProcessManagerState {
 // Directory / PID file helpers
 // =========================================================================
 
-/// Get the phlox data directory.
-pub fn phlox_dir() -> Option<PathBuf> {
-    dirs::data_dir().map(|dir| dir.join("Phlox"))
+/// Get the siyadascribe data directory.
+pub fn siyadascribe_dir() -> Option<PathBuf> {
+    dirs::data_dir().map(|dir| dir.join("SiyadaScribe"))
 }
 
 /// Get the PID file path for a service.
 fn pid_file(service: &str) -> Option<PathBuf> {
-    phlox_dir().map(|dir| dir.join(format!("{}.pid", service)))
+    siyadascribe_dir().map(|dir| dir.join(format!("{}.pid", service)))
 }
 
 /// Write a PID file.
 fn write_pid_file(service: &str, pid: u32) {
-    if let Some(dir) = phlox_dir() {
+    if let Some(dir) = siyadascribe_dir() {
         fs::create_dir_all(&dir).ok();
     }
     if let Some(pid_file) = pid_file(service) {
@@ -113,45 +113,45 @@ fn remove_pid_file(service: &str) {
 // Binary / model discovery
 // =========================================================================
 
-/// Find the phlox-llama-server binary path.
+/// Find the siyadascribe-llama-server binary path.
 fn find_llama_server() -> Option<PathBuf> {
     let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
 
     #[cfg(target_os = "windows")]
-    let path = exe_dir.join("phlox-llama-server.exe");
+    let path = exe_dir.join("siyadascribe-llama-server.exe");
     #[cfg(not(target_os = "windows"))]
-    let path = exe_dir.join("phlox-llama-server");
+    let path = exe_dir.join("siyadascribe-llama-server");
 
     if path.exists() {
         Some(path)
     } else {
-        log::warn!("phlox-llama-server not found at {:?}", path);
+        log::warn!("siyadascribe-llama-server not found at {:?}", path);
         None
     }
 }
 
-/// Find the phlox-whisper-server binary path.
+/// Find the siyadascribe-whisper-server binary path.
 fn find_whisper_server() -> Option<PathBuf> {
     let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
 
     #[cfg(target_os = "windows")]
-    let path = exe_dir.join("phlox-whisper-server.exe");
+    let path = exe_dir.join("siyadascribe-whisper-server.exe");
     #[cfg(not(target_os = "windows"))]
-    let path = exe_dir.join("phlox-whisper-server");
+    let path = exe_dir.join("siyadascribe-whisper-server");
 
     if path.exists() {
         Some(path)
     } else {
-        log::warn!("phlox-whisper-server not found at {:?}", path);
+        log::warn!("siyadascribe-whisper-server not found at {:?}", path);
         None
     }
 }
 
 /// Find the server (Python) binary path.
-/// The 'phlox-server' binary is a wrapper that points to ../Resources/server_dist/server.
+/// The 'siyadascribe-server' binary is a wrapper that points to ../Resources/server_dist/server.
 fn find_python_server() -> Option<PathBuf> {
     let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
-    let path = exe_dir.join("phlox-server");
+    let path = exe_dir.join("siyadascribe-server");
 
     if path.exists() {
         Some(path)
@@ -163,10 +163,10 @@ fn find_python_server() -> Option<PathBuf> {
 
 /// Find a llama model in the models directory.
 fn find_llama_model() -> Option<PathBuf> {
-    let models_dir = phlox_dir()?.join("llm_models");
+    let models_dir = siyadascribe_dir()?.join("llm_models");
 
     // Prefer Python's explicit selection file over a directory scan
-    let model_file = phlox_dir()?.join("llm_model.txt");
+    let model_file = siyadascribe_dir()?.join("llm_model.txt");
     if let Ok(model_name) = fs::read_to_string(&model_file) {
         let model_path = models_dir.join(model_name.trim());
         if model_path.exists() {
@@ -192,7 +192,7 @@ fn find_llama_model() -> Option<PathBuf> {
 
 /// Find the companion multimodal projector (mmproj) for the loaded model.
 fn find_llama_mmproj() -> Option<PathBuf> {
-    let models_dir = phlox_dir()?.join("llm_models");
+    let models_dir = siyadascribe_dir()?.join("llm_models");
 
     if let Ok(entries) = fs::read_dir(&models_dir) {
         for entry in entries.flatten() {
@@ -214,10 +214,10 @@ fn find_llama_mmproj() -> Option<PathBuf> {
 
 /// Find the STT model in the models directory.
 fn find_whisper_model() -> Option<PathBuf> {
-    let models_dir = phlox_dir()?.join("whisper_models");
+    let models_dir = siyadascribe_dir()?.join("whisper_models");
 
     // Prefer Python's explicit selection file over a directory scan.
-    let model_file = phlox_dir()?.join("whisper_model.txt");
+    let model_file = siyadascribe_dir()?.join("whisper_model.txt");
     if let Ok(model_name) = fs::read_to_string(&model_file) {
         let model_path = models_dir.join(model_name.trim());
         if model_path.exists() {
@@ -240,7 +240,7 @@ fn find_whisper_model() -> Option<PathBuf> {
 
 /// Find an embedding model in the models directory.
 fn find_embedding_model() -> Option<PathBuf> {
-    let models_dir = phlox_dir()?.join("embedding_models");
+    let models_dir = siyadascribe_dir()?.join("embedding_models");
 
     if let Ok(entries) = fs::read_dir(&models_dir) {
         for entry in entries.flatten() {
@@ -260,14 +260,14 @@ fn find_embedding_model() -> Option<PathBuf> {
 
 /// Start the llama server (returns a raw [`ManagedProcess`]).
 fn start_llama(port: Option<u16>) -> Result<ManagedProcess, String> {
-    let server_path = find_llama_server().ok_or("phlox-llama-server binary not found")?;
+    let server_path = find_llama_server().ok_or("siyadascribe-llama-server binary not found")?;
     let model_path = find_llama_model().ok_or("No LLM model found")?;
 
     let actual_port = port.unwrap_or(LLAMA_PORT);
 
-    log::info!("Starting phlox-llama-server from: {:?}", server_path);
+    log::info!("Starting siyadascribe-llama-server from: {:?}", server_path);
     log::info!(
-        "phlox-llama-server model: {:?}, port: {}",
+        "siyadascribe-llama-server model: {:?}, port: {}",
         model_path,
         actual_port
     );
@@ -314,10 +314,10 @@ fn start_llama(port: Option<u16>) -> Result<ManagedProcess, String> {
 
     let child = cmd
         .spawn()
-        .map_err(|e| format!("Failed to spawn phlox-llama-server: {}", e))?;
+        .map_err(|e| format!("Failed to spawn siyadascribe-llama-server: {}", e))?;
 
     let pid = child.id();
-    log::info!("phlox-llama-server started with PID: {}", pid);
+    log::info!("siyadascribe-llama-server started with PID: {}", pid);
     write_pid_file("llama", pid);
 
     Ok(ManagedProcess {
@@ -330,14 +330,14 @@ fn start_llama(port: Option<u16>) -> Result<ManagedProcess, String> {
 
 /// Start the whisper server (returns a raw [`ManagedProcess`]).
 fn start_whisper(port: Option<u16>) -> Result<ManagedProcess, String> {
-    let server_path = find_whisper_server().ok_or("phlox-whisper-server binary not found")?;
+    let server_path = find_whisper_server().ok_or("siyadascribe-whisper-server binary not found")?;
     let model_path = find_whisper_model().ok_or("No Whisper model found")?;
 
     let actual_port = port.unwrap_or(WHISPER_PORT);
 
-    log::info!("Starting phlox-whisper-server from: {:?}", server_path);
+    log::info!("Starting siyadascribe-whisper-server from: {:?}", server_path);
     log::info!(
-        "phlox-whisper-server model: {:?}, port: {}",
+        "siyadascribe-whisper-server model: {:?}, port: {}",
         model_path,
         actual_port
     );
@@ -366,10 +366,10 @@ fn start_whisper(port: Option<u16>) -> Result<ManagedProcess, String> {
 
     let child = cmd
         .spawn()
-        .map_err(|e| format!("Failed to spawn phlox-whisper-server: {}", e))?;
+        .map_err(|e| format!("Failed to spawn siyadascribe-whisper-server: {}", e))?;
 
     let pid = child.id();
-    log::info!("phlox-whisper-server started with PID: {}", pid);
+    log::info!("siyadascribe-whisper-server started with PID: {}", pid);
     write_pid_file("whisper", pid);
 
     Ok(ManagedProcess {
@@ -382,7 +382,7 @@ fn start_whisper(port: Option<u16>) -> Result<ManagedProcess, String> {
 
 /// Start the embedding server (returns a raw [`ManagedProcess`]).
 fn start_embedding(port: Option<u16>) -> Result<ManagedProcess, String> {
-    let server_path = find_llama_server().ok_or("phlox-llama-server binary not found")?;
+    let server_path = find_llama_server().ok_or("siyadascribe-llama-server binary not found")?;
     let model_path = find_embedding_model().ok_or("No embedding model found")?;
 
     let actual_port = port.unwrap_or(EMBEDDING_PORT);
@@ -748,10 +748,10 @@ fn start_server() -> Result<ManagedProcess, String> {
     cmd.stdout(Stdio::piped());
     cmd.env("RATE_LIMIT_ENABLED", "true");
     // Tell Python which PID to watch so it self-terminates if we die
-    cmd.env("PHLOX_PARENT_PID", std::process::id().to_string());
+    cmd.env("SIYADASCRIBE_PARENT_PID", std::process::id().to_string());
 
     if cfg!(debug_assertions) {
-        cmd.env("PHLOX_DEMO_MODE", "true");
+        cmd.env("SIYADASCRIBE_DEMO_MODE", "true");
     }
 
     #[cfg(unix)]
@@ -1170,9 +1170,9 @@ impl ProcessManagerState {
         }
 
         // Fallback: kill any orphans by name pattern
-        kill_process_by_name("phlox-llama-server", "phlox-llama-server");
-        kill_process_by_name("phlox-whisper-server", "phlox-whisper-server");
-        kill_process_by_name("phlox-server", "phlox-server");
+        kill_process_by_name("siyadascribe-llama-server", "siyadascribe-llama-server");
+        kill_process_by_name("siyadascribe-whisper-server", "siyadascribe-whisper-server");
+        kill_process_by_name("siyadascribe-server", "siyadascribe-server");
     }
 
     /// Reap dead children; remove their state entries and PID files.

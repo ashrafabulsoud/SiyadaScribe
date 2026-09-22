@@ -1,5 +1,5 @@
 """
-Embedding providers for the Phlox vector store.
+Embedding providers for the SiyadaScribe vector store.
 
 Usage:
     provider = OpenAICompatibleProvider(base_url=..., api_key=..., model_name=...)

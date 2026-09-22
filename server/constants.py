@@ -10,7 +10,7 @@ IS_TESTING = os.getenv("TESTING", "false").lower() == "true"
 IS_DOCKER = Path("/.dockerenv").exists() or os.getenv("DOCKER_CONTAINER") == "true"
 RATE_LIMIT_ENABLED = os.getenv("RATE_LIMIT_ENABLED", "false").lower() == "true"
 
-IS_DEMO_MODE = os.getenv("PHLOX_DEMO_MODE", "false").lower() == "true"
+IS_DEMO_MODE = os.getenv("SIYADASCRIBE_DEMO_MODE", "false").lower() == "true"
 
 RATE_LIMIT_DESKTOP_MULTIPLIER = int(os.getenv("RATE_LIMIT_DESKTOP_MULTIPLIER", "3"))
 
@@ -25,17 +25,19 @@ TRUSTED_PROXY_IPS = [
     ip.strip() for ip in os.getenv("TRUSTED_PROXY_IPS", "").split(",") if ip.strip()
 ]
 
-PHLOX_PASSPHRASE = os.getenv("PHLOX_PASSPHRASE", "").strip()
-PHLOX_ALLOW_UNAUTHENTICATED = os.getenv("PHLOX_ALLOW_UNAUTHENTICATED", "false").lower() == "true"
+SIYADASCRIBE_PASSPHRASE = os.getenv("SIYADASCRIBE_PASSPHRASE", "").strip()
+SIYADASCRIBE_ALLOW_UNAUTHENTICATED = (
+    os.getenv("SIYADASCRIBE_ALLOW_UNAUTHENTICATED", "false").lower() == "true"
+)
 
 MAX_BODY_BYTES = 100 * 1024 * 1024
 MAX_AUDIO_BODY_BYTES = 1024 * 1024 * 1024
 
-APP_NAME = "Phlox"
-APP_AUTHOR = "bloodworks.io"
+APP_NAME = "SiyadaScribe"
+APP_AUTHOR = "SiyadaScribe"
 
 
-PROTECTED_TEMPLATE_PREFIXES = ("phlox_", "soap_", "progress_", "consult_", "procedure_")
+PROTECTED_TEMPLATE_PREFIXES = ("siyadascribe_", "soap_", "progress_", "consult_", "procedure_")
 
 
 def is_protected_template_key(template_key: str) -> bool:
@@ -75,7 +77,7 @@ def get_temp_directory():
         temp_dir = Path("/usr/src/app/temp")
     else:
         # Use system temp directory with app-specific subdirectory
-        temp_dir = Path(tempfile.gettempdir()) / "phlox"
+        temp_dir = Path(tempfile.gettempdir()) / "siyadascribe"
     temp_dir.mkdir(parents=True, exist_ok=True)
     return temp_dir
 

@@ -137,7 +137,7 @@ def get_base_key(template_key: str) -> str:
         itp_follow-up_note-b_1 → itp_follow-up_note-b
         progress_note_2 → progress_note
         soap_01 → soap
-        phlox_1 → phlox
+        siyadascribe_1 → siyadascribe
     """
     parts = template_key.rsplit("_", 1)
     if len(parts) == 2 and parts[1].isdigit():

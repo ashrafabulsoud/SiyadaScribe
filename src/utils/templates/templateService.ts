@@ -4,7 +4,7 @@ import { buildApiUrl } from "../helpers/apiConfig";
 import { universalFetch } from "../helpers/apiHelpers";
 const templateCache = new Map();
 
-export const DEFAULT_TEMPLATE_KEYS = ["phlox_", "soap_", "progress_", "consult_", "procedure_"];
+export const DEFAULT_TEMPLATE_KEYS = ["siyadascribe_", "soap_", "progress_", "consult_", "procedure_"];
 
 export const isDefaultTemplate = (templateKey) =>
     DEFAULT_TEMPLATE_KEYS.some((prefix) => templateKey.startsWith(prefix));

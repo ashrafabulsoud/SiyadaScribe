@@ -42,13 +42,13 @@ const ChangelogModal = ({ isOpen, onClose, version, changelog }) => {
                                 <HStack>
                                     <Image
                                         src="/logo.webp"
-                                        alt="Phlox Logo"
+                                        alt="SiyadaScribe Logo"
                                         width="30px"
                                     />
                                     <ModalTitle>Changelog v{version}</ModalTitle>
                                 </HStack>
                                 <Link
-                                    href="https://github.com/bloodworks-io/phlox"
+                                    href="https://github.com/ashrafabulsoud/SiyadaScribe"
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     _hover={{ textDecoration: "none" }}

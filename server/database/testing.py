@@ -1,4 +1,4 @@
-"""Database testing utilities for Phlox.
+"""Database testing utilities for SiyadaScribe.
 
 This module provides utilities for testing database functionality.
 """

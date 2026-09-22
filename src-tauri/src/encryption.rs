@@ -1,4 +1,4 @@
-// Minimal encryption key management for Phlox
+// Minimal encryption key management for SiyadaScribe
 //
 // SQLCipher handles all key derivation internally using PBKDF2-HMAC-SHA512.
 // This module just provides hex encoding for the passphrase.
@@ -22,7 +22,7 @@ pub enum EncryptionError {
 
 /// Get the platform-specific data directory
 pub fn get_data_dir() -> Option<std::path::PathBuf> {
-    dirs::data_dir().map(|d| d.join("Phlox"))
+    dirs::data_dir().map(|d| d.join("SiyadaScribe"))
 }
 
 /// Check if encryption has been set up (database file exists)
@@ -33,7 +33,7 @@ pub fn has_encryption_setup() -> bool {
 /// Check if database file exists
 pub fn database_exists() -> bool {
     if let Some(data_dir) = get_data_dir() {
-        let db_path = data_dir.join("phlox_database.sqlite");
+        let db_path = data_dir.join("siyadascribe_database.sqlite");
         return db_path.exists();
     }
     false

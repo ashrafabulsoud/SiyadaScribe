@@ -431,7 +431,7 @@ def get_patient_history(ur_number: str, template_key: str | None = None) -> list
 
     Args:
         ur_number (str): The patient's UR number.
-        template_key (str, optional): Filter by template type (e.g., "soap", "phlox").
+        template_key (str, optional): Filter by template type (e.g., "soap", "siyadascribe").
             Uses prefix matching to handle template versions like "soap_01", "soap_02".
 
     Returns:
@@ -442,7 +442,7 @@ def get_patient_history(ur_number: str, template_key: str | None = None) -> list
         with get_db().read() as cursor:
             if template_key:
                 # Match the whole template family (versions + forks across the
-                # custom_ boundary, e.g. phlox_01 / phlox_05 / custom_phlox_1)
+                # custom_ boundary, e.g. siyadascribe_01 / siyadascribe_05 / custom_siyadascribe_1)
                 patterns = get_template_family_patterns(template_key)
                 clause = " OR ".join("template_key LIKE ? ESCAPE '\\'" for _ in patterns)
                 cursor.execute(
@@ -470,7 +470,7 @@ def get_patient_history(ur_number: str, template_key: str | None = None) -> list
         encounters = []
         for row in rows:
             # Exact template first; else latest version in the same family
-            # (e.g. a phlox_05 note resolves against phlox_01/phlox_02)
+            # (e.g. a siyadascribe_05 note resolves against siyadascribe_01/siyadascribe_02)
             template = get_template_by_key(row["template_key"]) or get_template_by_key(
                 row["template_key"], exact_match=False
             )

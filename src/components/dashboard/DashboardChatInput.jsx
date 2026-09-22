@@ -30,7 +30,7 @@ const DashboardChatInput = ({
     onChange,
     onSend,
     isLoading,
-    placeholder = "Message Phlox...",
+    placeholder = "Message SiyadaScribe...",
     position = "centered", // "centered" | "bottom"
     showDisclaimer = true,
     pendingImage,
@@ -290,7 +290,7 @@ const DashboardChatInput = ({
                     mt={2}
                     opacity={0.8}
                 >
-                    Phlox may make mistakes. Always verify critical information.
+                    SiyadaScribe may make mistakes. Always verify critical information.
                 </Text>
             )}
         </Flex>

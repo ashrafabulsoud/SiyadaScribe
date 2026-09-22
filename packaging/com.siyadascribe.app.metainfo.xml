@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>com.phlox.app</id>
+  <id>com.siyadascribe.app</id>
   <metadata_license>MIT</metadata_license>
   <project_license>MIT</project_license>
-  <name>Phlox</name>
+  <name>SiyadaScribe</name>
   <summary>Open-source AI scribe with patient management</summary>
   <description>
     <p>
-      Phlox is a free, open-source, AI scribe with a built-in patient
+      SiyadaScribe is a free, open-source, AI scribe with a built-in patient
       management system and agentic AI capabilities. It is designed as a
       local-first alternative to SaaS medical scribes that runs entirely
       on your own hardware with no third-party services — all data stays
@@ -24,18 +24,18 @@
       GPU acceleration on AMD, Intel, and NVIDIA hardware.
     </p>
   </description>
-  <launchable type="desktop-id">com.phlox.app.desktop</launchable>
-  <url type="homepage">https://github.com/bloodworks-io/phlox</url>
-  <url type="bugtracker">https://github.com/bloodworks-io/phlox/issues</url>
-  <url type="help">https://github.com/bloodworks-io/phlox#readme</url>
+  <launchable type="desktop-id">com.siyadascribe.app.desktop</launchable>
+  <url type="homepage">https://github.com/ashrafabulsoud/SiyadaScribe</url>
+  <url type="bugtracker">https://github.com/ashrafabulsoud/SiyadaScribe/issues</url>
+  <url type="help">https://github.com/ashrafabulsoud/SiyadaScribe#readme</url>
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/bloodworks-io/phlox/main/assets/readme_screenshot.png</image>
-      <caption>Phlox main interface</caption>
+      <image>https://raw.githubusercontent.com/ashrafabulsoud/SiyadaScribe/main/assets/readme_screenshot.png</image>
+      <caption>SiyadaScribe main interface</caption>
     </screenshot>
   </screenshots>
   <provides>
-    <binary>phlox</binary>
+    <binary>siyadascribe</binary>
   </provides>
   <releases>
     <release version="2.0.0" date="2026-07-20">
@@ -54,6 +54,6 @@
     <id>org.freedesktop.Platform.Vulkan.Mesa</id>
   </suggests>
   <content_rating type="oars-1.1" />
-  <developer_name>bloodworks-io</developer_name>
-  <update_contact>noreply@bloodworks.io</update_contact>
+  <developer_name>SiyadaScribe</developer_name>
+  <update_contact>https://github.com/ashrafabulsoud/SiyadaScribe/issues</update_contact>
 </component>

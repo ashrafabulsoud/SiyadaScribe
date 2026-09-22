@@ -35,7 +35,7 @@ export const STEP_DESCRIPTIONS = {
 };
 
 export const TEMPLATE_DESCRIPTIONS = {
-  phlox_01:
+  siyadascribe_01:
     "Physician consultations — primary condition, history, impression, and plan.",
   soap_01: "Standard SOAP format — Subjective, Objective, Assessment, Plan.",
   progress_01: "Follow-up visits — interval history, current status, and plan.",

@@ -1,10 +1,10 @@
-# Flatpak manifest for Phlox
+# Flatpak manifest for SiyadaScribe
 
-id: com.phlox.app
+id: com.siyadascribe.app
 runtime: org.gnome.Platform
 runtime-version: '49'
 sdk: org.gnome.Sdk
-command: phlox
+command: siyadascribe
 
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.node22
@@ -70,7 +70,7 @@ modules:
           - git apply --recount omi-adapter.patch
     post-install:
       - install -Dm755 examples/server/parakeet-server
-          /app/bin/phlox-whisper-server-x86_64-unknown-linux-gnu
+          /app/bin/siyadascribe-whisper-server-x86_64-unknown-linux-gnu
 
   - name: llama_cpp
     buildsystem: cmake-ninja
@@ -94,7 +94,7 @@ modules:
     post-install:
       # llama-server is at <build-dir>/bin/llama-server (per llama.cpp CMake).
       - install -Dm755 bin/llama-server
-          /app/bin/phlox-llama-server-x86_64-unknown-linux-gnu
+          /app/bin/siyadascribe-llama-server-x86_64-unknown-linux-gnu
 
   - name: python_server
     buildsystem: simple
@@ -106,8 +106,8 @@ modules:
       - bash src-tauri/build-server.sh
       - install -d /app/bin/server_dist
       - cp -a src-tauri/server_dist/. /app/bin/server_dist/
-      - install -Dm755 src-tauri/binaries/phlox-server-x86_64-unknown-linux-gnu
-          /app/bin/phlox-server-x86_64-unknown-linux-gnu
+      - install -Dm755 src-tauri/binaries/siyadascribe-server-x86_64-unknown-linux-gnu
+          /app/bin/siyadascribe-server-x86_64-unknown-linux-gnu
     sources:
       - type: dir
         path: ..
@@ -117,30 +117,30 @@ modules:
       append-path: /app/bin
 
 
-  - name: phlox
+  - name: siyadascribe
     buildsystem: simple
     build-commands:
       - install -d src-tauri/binaries
       - ln -s /app/bin/server_dist src-tauri/server_dist
-      - ln -sf /app/bin/phlox-server-x86_64-unknown-linux-gnu src-tauri/binaries/
-      - ln -sf /app/bin/phlox-llama-server-x86_64-unknown-linux-gnu src-tauri/binaries/
-      - ln -sf /app/bin/phlox-whisper-server-x86_64-unknown-linux-gnu src-tauri/binaries/
-      - ln -sf phlox-server-x86_64-unknown-linux-gnu /app/bin/phlox-server
-      - ln -sf phlox-llama-server-x86_64-unknown-linux-gnu /app/bin/phlox-llama-server
-      - ln -sf phlox-whisper-server-x86_64-unknown-linux-gnu /app/bin/phlox-whisper-server
+      - ln -sf /app/bin/siyadascribe-server-x86_64-unknown-linux-gnu src-tauri/binaries/
+      - ln -sf /app/bin/siyadascribe-llama-server-x86_64-unknown-linux-gnu src-tauri/binaries/
+      - ln -sf /app/bin/siyadascribe-whisper-server-x86_64-unknown-linux-gnu src-tauri/binaries/
+      - ln -sf siyadascribe-server-x86_64-unknown-linux-gnu /app/bin/siyadascribe-server
+      - ln -sf siyadascribe-llama-server-x86_64-unknown-linux-gnu /app/bin/siyadascribe-llama-server
+      - ln -sf siyadascribe-whisper-server-x86_64-unknown-linux-gnu /app/bin/siyadascribe-whisper-server
       - npm ci
       - npx tauri build --no-bundle -- --locked
-      - install -Dm755 src-tauri/target/release/phlox /app/bin/phlox
-      - install -Dm644 packaging/com.phlox.app.desktop
-          /app/share/applications/com.phlox.app.desktop
-      - install -Dm644 packaging/com.phlox.app.metainfo.xml
-          /app/share/metainfo/com.phlox.app.metainfo.xml
+      - install -Dm755 src-tauri/target/release/siyadascribe /app/bin/siyadascribe
+      - install -Dm644 packaging/com.siyadascribe.app.desktop
+          /app/share/applications/com.siyadascribe.app.desktop
+      - install -Dm644 packaging/com.siyadascribe.app.metainfo.xml
+          /app/share/metainfo/com.siyadascribe.app.metainfo.xml
       - install -Dm644 src-tauri/icons/32x32.png
-          /app/share/icons/hicolor/32x32/apps/com.phlox.app.png
+          /app/share/icons/hicolor/32x32/apps/com.siyadascribe.app.png
       - install -Dm644 src-tauri/icons/128x128.png
-          /app/share/icons/hicolor/128x128/apps/com.phlox.app.png
+          /app/share/icons/hicolor/128x128/apps/com.siyadascribe.app.png
       - install -Dm644 src-tauri/icons/128x128@2x.png
-          /app/share/icons/hicolor/128x128@2/apps/com.phlox.app.png
+          /app/share/icons/hicolor/128x128@2/apps/com.siyadascribe.app.png
     sources:
       - type: dir
         path: ..
@@ -149,5 +149,5 @@ modules:
         - --share=network
       append-path: /usr/lib/sdk/node22/bin:/usr/lib/sdk/rust-stable/bin
       env:
-        CARGO_HOME: /run/build/phlox/cargo
-        npm_config_cache: /run/build/phlox/npm-cache
+        CARGO_HOME: /run/build/siyadascribe/cargo
+        npm_config_cache: /run/build/siyadascribe/npm-cache

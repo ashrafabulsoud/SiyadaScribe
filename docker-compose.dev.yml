@@ -1,8 +1,8 @@
 version: "3"
 services:
     app:
-        image: localhost/phlox-dev:latest
-        container_name: phlox-dev
+        image: localhost/siyadascribe-dev:latest
+        container_name: siyadascribe-dev
         network_mode: host
         environment:
             DB_ENCRYPTION_KEY: ${DB_ENCRYPTION_KEY}
@@ -10,7 +10,7 @@ services:
             TZ: Australia/Melbourne
             SERVER_HOST: 0.0.0.0 # Bind to all interfaces
             RATE_LIMIT_ENABLED: false
-            PHLOX_ALLOW_UNAUTHENTICATED: true # Dev only: skip startup auth guard
+            SIYADASCRIBE_ALLOW_UNAUTHENTICATED: true # Dev only: skip startup auth guard
         volumes:
             - .:/usr/src/app
             - /usr/src/app/node_modules

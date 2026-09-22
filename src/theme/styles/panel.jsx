@@ -106,7 +106,7 @@ const panelStyles = (props) => ({
                 props.colorMode === "light"
                     ? `radial-gradient(circle at 30% 30%, rgba(254,100,11,0.20) 0%, transparent 45%), radial-gradient(circle at 75% 25%, rgba(23,146,153,0.16) 0%, transparent 45%), radial-gradient(circle at 55% 80%, rgba(114,135,253,0.16) 0%, transparent 45%), #e6e9ef`
                     : `radial-gradient(circle at 30% 30%, rgba(245,169,127,0.30) 0%, transparent 45%), radial-gradient(circle at 75% 25%, rgba(139,213,202,0.22) 0%, transparent 45%), radial-gradient(circle at 55% 80%, rgba(183,189,248,0.20) 0%, transparent 45%), ${colors.dark.crust}`,
-            animation: "phloxAuroraDrift 26s ease-in-out infinite",
+            animation: "siyadascribeAuroraDrift 26s ease-in-out infinite",
             zIndex: -1,
         },
         "&::after": {
@@ -128,7 +128,7 @@ const panelStyles = (props) => ({
             zIndex: -1,
         },
     },
-    "@keyframes phloxAuroraDrift": {
+    "@keyframes siyadascribeAuroraDrift": {
         "0%, 100%": {
             transform: "translate(0%, 0%) scale(1)",
         },

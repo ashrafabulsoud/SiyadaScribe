@@ -57,7 +57,7 @@ export const SetupWizard = ({ onSuccess }) => {
       const data = await response.json();
       setStoredToken(data.token);
       toaster.create({
-        title: "Welcome to Phlox",
+        title: "Welcome to SiyadaScribe",
         description: "Admin account created. You are signed in.",
         type: "success",
         duration: 5000,
@@ -102,7 +102,7 @@ export const SetupWizard = ({ onSuccess }) => {
       >
         <VStack gap={6} align="stretch">
           <Flex direction="column" align="center" mb={2}>
-            <Image src="/logo.webp" alt="Phlox Logo" width="60px" mb={3} />
+            <Image src="/logo.webp" alt="SiyadaScribe Logo" width="60px" mb={3} />
             <Heading
               as="h1"
               textAlign="center"
@@ -124,7 +124,7 @@ export const SetupWizard = ({ onSuccess }) => {
               maxW="380px"
               lineHeight="1.6"
             >
-              Create the administrator account for this Phlox instance. All
+              Create the administrator account for this SiyadaScribe instance. All
               existing data will be attached to this account.
             </Text>
           </Flex>

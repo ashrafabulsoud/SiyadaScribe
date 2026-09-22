@@ -158,7 +158,7 @@ jobs:
       - name: Upload DMG
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: Phlox-${{ matrix.os }}-${{ matrix.arch }}
+          name: SiyadaScribe-${{ matrix.os }}-${{ matrix.arch }}
           path: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
 
       - name: Attach to Release
@@ -187,8 +187,8 @@ jobs:
       - name: Build Flatpak
         uses: flatpak/flatpak-github-actions/flatpak-builder@79327416609af08178ad73b352877e51450790b3 # v6.8
         with:
-          bundle: Phlox-linux-x86_64.flatpak
-          manifest-path: packaging/com.phlox.app.yaml
+          bundle: SiyadaScribe-linux-x86_64.flatpak
+          manifest-path: packaging/com.siyadascribe.app.yaml
           cache-key: flatpak-builder-${{ github.sha }}
           arch: x86_64
           verbose: true
@@ -196,14 +196,14 @@ jobs:
       - name: Upload Flatpak bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: Phlox-linux-x86_64.flatpak
-          path: Phlox-linux-x86_64.flatpak
+          name: SiyadaScribe-linux-x86_64.flatpak
+          path: SiyadaScribe-linux-x86_64.flatpak
 
       - name: Attach to Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
-          files: Phlox-linux-x86_64.flatpak
+          files: SiyadaScribe-linux-x86_64.flatpak
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -243,23 +243,8 @@ jobs:
           context: .
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}:${{ steps.meta.outputs.version }}
-            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/ashrafabulsoud/siyadascribe:${{ steps.meta.outputs.version }}
+            ghcr.io/ashrafabulsoud/siyadascribe:latest
           platforms: linux/amd64
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-  notify-website:
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: [build, build-flatpak, docker]
-    steps:
-      - name: Trigger phlox-website rebuild
-        env:
-          GH_TOKEN: ${{ secrets.WEBSITE_DISPATCH_TOKEN }}
-        run: |
-          curl -sS -X POST \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/bloodworks-io/phlox-website/dispatches \
-            -d '{"event_type":"phlox-released","client_payload":{"version":"'"${GITHUB_REF_NAME}"'"}}'

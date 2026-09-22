@@ -1,5 +1,5 @@
 """
-Shared embedding providers for the Phlox server.
+Shared embedding providers for the SiyadaScribe server.
 """
 
 from .providers import OpenAICompatibleProvider
