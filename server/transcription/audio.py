@@ -18,6 +18,12 @@ def _get_whisper_port() -> str:
     return str(get_whisper_port())
 
 
+def _forced_stt_language(config: dict) -> str | None:
+    """WHISPER_LANGUAGE pins the spoken language; "auto" (the default) leaves detection to the STT."""
+    value = (config.get("WHISPER_LANGUAGE") or "auto").strip()
+    return None if value == "auto" else value
+
+
 async def transcribe_audio(audio_buffer: bytes) -> dict[str, Union[str, float]]:
     """
     Transcribe an audio buffer using a Whisper endpoint.
@@ -34,14 +40,12 @@ async def transcribe_audio(audio_buffer: bytes) -> dict[str, Union[str, float]]:
 
         if is_local_whisper:
             logger.info("Using local STT server for transcription")
-            stt_language = preferred_language
             supported = whisper_model_manager.get_active_model_languages()
-            whisper_language = (config.get("WHISPER_LANGUAGE") or "auto").strip()
-            if whisper_language != "auto" and whisper_language in supported:
-                stt_language = whisper_language
+            forced_language = _forced_stt_language(config)
+            stt_language = forced_language if forced_language in supported else preferred_language
             if stt_language not in supported:
                 logger.warning(
-                    f"Active local STT model does not support '{preferred_language}'; "
+                    f"Active local STT model does not support '{stt_language}'; "
                     f"falling back to 'en'. Supported: {supported}"
                 )
                 stt_language = "en"
@@ -124,9 +128,9 @@ async def _transcribe_external_api(
             "response_format": "verbose_json",
             "timestamp_granularities[]": "segment",
         }
-        whisper_language = (config.get("WHISPER_LANGUAGE") or "auto").strip()
-        if whisper_language and whisper_language != "auto":
-            data["language"] = whisper_language
+        forced_language = _forced_stt_language(config)
+        if forced_language:
+            data["language"] = forced_language
         elif language and language != "en":
             data["language"] = language
 
