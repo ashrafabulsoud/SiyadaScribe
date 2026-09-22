@@ -124,7 +124,7 @@ const WhisperTab = ({
                         aria-describedby="whisper-language-help"
                     />
                     <Text id="whisper-language-help" fontSize="xs" className="pill-box-icons" mt={1}>
-                        ISO code to force a transcription language, e.g. en or ar. Leave as auto to detect per recording.
+                        ISO code to force a transcription language, e.g. en or ar. Leave as auto to let a remote endpoint detect each recording; the bundled local model always uses an explicit language (this code if supported, otherwise your preferred language).
                     </Text>
                 </Box>
 

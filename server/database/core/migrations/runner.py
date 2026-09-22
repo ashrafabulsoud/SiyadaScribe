@@ -7,6 +7,26 @@ import logging
 SCHEMA_VERSION = 11
 
 
+def _is_siyadascribe_105_schema(cursor) -> bool:
+    """SiyadaScribe 1.0.5 stamped v6 for its own output_language column, before upstream's v6
+    restructured patients into encounters + patient_profiles."""
+    cursor.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' "
+        "AND name IN ('patients', 'patient_profiles')"
+    )
+    tables = {row["name"] for row in cursor.fetchall()}
+    return "patients" in tables and "patient_profiles" not in tables
+
+
+def _assign_legacy_ur_numbers(cursor) -> int:
+    """Upstream v6 only carries name/dob/gender into patient_profiles for rows with a UR number."""
+    cursor.execute(
+        "UPDATE patients SET ur_number = 'LEGACY-' || id "
+        "WHERE ur_number IS NULL OR trim(ur_number) = ''"
+    )
+    return cursor.rowcount
+
+
 def run_migrations(patient_db):
     """Run all pending schema migrations.
 
@@ -34,18 +54,13 @@ def run_migrations(patient_db):
             result = cursor.fetchone()
             current_version = (result["version"] if result else None) or 0
 
-            if current_version == 6:
-                cursor.execute(
-                    "SELECT name FROM sqlite_master WHERE type = 'table' "
-                    "AND name IN ('patients', 'patient_profiles')"
+            if current_version == 6 and _is_siyadascribe_105_schema(cursor):
+                relabelled = _assign_legacy_ur_numbers(cursor)
+                logging.info(
+                    "Detected SiyadaScribe 1.0.5 schema; replaying upstream migrations from v6 "
+                    f"({relabelled} visits without a UR number were given LEGACY-<id>)."
                 )
-                tables = {row["name"] for row in cursor.fetchall()}
-                if "patients" in tables and "patient_profiles" not in tables:
-                    logging.info(
-                        "Detected SiyadaScribe 1.0.5 schema v6 (output_language only); "
-                        "replaying upstream migrations v6 onward for patient profiles."
-                    )
-                    current_version = 5
+                current_version = 5
 
             if current_version < SCHEMA_VERSION:
                 logging.info(

@@ -374,6 +374,8 @@ def test_patient_display_name_without_comma(name, expected):
         ("auto", "es", "es"),
         ("ar", "en", "ar"),
         ("en", "es", "en"),
+        (" AR ", "en", "ar"),
+        ("Auto", "en", None),
     ],
 )
 async def test_external_transcription_language(
@@ -421,6 +423,7 @@ async def test_external_transcription_language(
     "whisper_language, preferred_language, supported, expected",
     [
         ("ar", "en", ["en", "ar"], "ar"),
+        ("AR", "en", ["en", "ar"], "ar"),
         ("ar", "es", ["en", "es"], "es"),
         ("ar", "es", ["en"], "en"),
         ("auto", "es", ["en", "es"], "es"),

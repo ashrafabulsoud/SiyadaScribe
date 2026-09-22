@@ -25,6 +25,14 @@ def test_version_six_upgrade(tmp_path, monkeypatch, legacy_fork):
                 "ALTER TABLE user_settings ADD COLUMN output_language TEXT DEFAULT 'auto'"
             )
             cursor.execute("INSERT INTO user_settings (output_language) VALUES ('arabic')")
+            cursor.executemany(
+                "INSERT INTO patients (name, dob, gender, ur_number) VALUES (?, ?, ?, ?)",
+                [
+                    ("Doe, Jane", "1980-01-02", "F", "UR123"),
+                    ("Bob Smith", "1975-05-06", "M", None),
+                    ("Madonna", "1990-07-08", "F", "  "),
+                ],
+            )
         cursor.execute("DELETE FROM config WHERE key = 'WHISPER_LANGUAGE'")
         cursor.execute("INSERT INTO schema_version VALUES (6)")
         connection.commit()
@@ -54,6 +62,19 @@ def test_version_six_upgrade(tmp_path, monkeypatch, legacy_fork):
                     cursor.execute("SELECT output_language FROM user_settings").fetchone()[0]
                     == "arabic"
                 )
+                profiles = cursor.execute(
+                    "SELECT ur_number, first_name, last_name, dob, gender FROM patient_profiles "
+                    "ORDER BY ur_number"
+                ).fetchall()
+                assert [tuple(row) for row in profiles] == [
+                    ("LEGACY-2", "Bob", "Smith", "1975-05-06", "M"),
+                    ("LEGACY-3", "", "Madonna", "1990-07-08", "F"),
+                    ("UR123", "Jane", "Doe", "1980-01-02", "F"),
+                ]
+                encounter_urs = cursor.execute(
+                    "SELECT ur_number FROM encounters ORDER BY id"
+                ).fetchall()
+                assert [row[0] for row in encounter_urs] == ["UR123", "LEGACY-2", "LEGACY-3"]
 
 
 def test_full_migration_chain_from_empty_database(tmp_path, monkeypatch):
