@@ -2,10 +2,9 @@
 # Combined build script for SiyadaScribe Tauri application
 # This script builds all required components:
 # 1. Python server (Nuitka)
-# 2. siyadascribe-pm (Process Manager - Rust)
-# 3. whisper.cpp server (for local transcription) [SKIP with --skip-whisper]
-# 4. llama.cpp server (for local LLM) [SKIP with --skip-llama]
-# 5. Copies all binaries to src-tauri/binaries/ for Tauri bundling
+# 2. parakeet.cpp server (Omi Med STT, for local transcription) [SKIP with --skip-whisper]
+# 3. llama.cpp server (for local LLM) [SKIP with --skip-llama]
+# 4. Copies all binaries to src-tauri/binaries/ for Tauri bundling
 #
 # Use --debug for development mode (tauri dev)
 # Use --skip-cpp to skip C++ builds
@@ -102,44 +101,6 @@ if [[ "$OSTYPE" == "darwin"* ]] && [ "$DEBUG_MODE" != true ]; then
 fi
 
 # ========================================
-# Step 1: Build siyadascribe-pm (Process Manager)
-# ========================================
-echo ""
-echo "=========================================="
-echo "Step 1: Building siyadascribe-pm (Process Manager)..."
-echo "=========================================="
-
-cd src-tauri
-if [ "$DEBUG_MODE" = true ]; then
-    cargo build -p siyadascribe-pm
-else
-    cargo build --release -p siyadascribe-pm
-fi
-cd ..
-
-# Verify the binary was built
-if [ "$DEBUG_MODE" = true ]; then
-    if [[ "$PLATFORM" == "windows-"* ]]; then
-        PM_BIN="src-tauri/target/debug/siyadascribe-pm.exe"
-    else
-        PM_BIN="src-tauri/target/debug/siyadascribe-pm"
-    fi
-else
-    if [[ "$PLATFORM" == "windows-"* ]]; then
-        PM_BIN="src-tauri/target/release/siyadascribe-pm.exe"
-    else
-        PM_BIN="src-tauri/target/release/siyadascribe-pm"
-    fi
-fi
-
-if [ ! -f "$PM_BIN" ]; then
-    echo "❌ Error: siyadascribe-pm binary not found at $PM_BIN"
-    exit 1
-fi
-
-echo "✅ siyadascribe-pm built successfully"
-
-# ========================================
 # Step 2: Build Python Server
 # ========================================
 echo ""
@@ -162,15 +123,15 @@ fi
 echo "✅ Python server built successfully"
 
 # ========================================
-# Step 3: Build whisper.cpp
+# Step 3: Build parakeet.cpp
 # ========================================
 echo ""
 echo "=========================================="
-echo "Step 3: Building whisper.cpp..."
+echo "Step 3: Building parakeet.cpp..."
 echo "=========================================="
 
 if [ "$SKIP_WHISPER" = true ]; then
-    echo "⏭️  Skipping whisper.cpp build (--skip-whisper)"
+    echo "⏭️  Skipping parakeet.cpp build (--skip-whisper)"
     WHISPER_BIN="src-tauri/siyadascribe-whisper-server"
     if [[ "$PLATFORM" == "windows-"* ]]; then
         WHISPER_BIN="src-tauri/siyadascribe-whisper-server.exe"
@@ -180,9 +141,9 @@ if [ "$SKIP_WHISPER" = true ]; then
     fi
 else
     if [ "$DEBUG_MODE" = true ]; then
-        bash src-tauri/build-whisper.sh --debug
+        bash src-tauri/build-parakeet.sh --debug
     else
-        bash src-tauri/build-whisper.sh
+        bash src-tauri/build-parakeet.sh
     fi
 
     # Check if whisper-server was built
@@ -193,11 +154,11 @@ else
     fi
 
     if [ ! -f "$WHISPER_BIN" ]; then
-        echo "❌ Error: whisper-server binary not found at $WHISPER_BIN"
+        echo "❌ Error: parakeet-server binary not found at $WHISPER_BIN"
         exit 1
     fi
 
-    echo "✅ whisper.cpp built successfully"
+    echo "✅ parakeet.cpp built successfully"
 fi
 
 # ========================================
@@ -249,15 +210,6 @@ echo "=========================================="
 
 mkdir -p "src-tauri/binaries"
 
-# Copy siyadascribe-pm binary
-if [ -f "$PM_BIN" ]; then
-    cp "$PM_BIN" "src-tauri/binaries/siyadascribe-pm-${PLATFORM}"
-    chmod +x "src-tauri/binaries/siyadascribe-pm-${PLATFORM}"
-    echo "✅ Copied siyadascribe-pm"
-else
-    echo "⚠️  Warning: siyadascribe-pm not found, skipping"
-fi
-
 # Copy llama-server
 if [ -f "$LLAMA_BIN" ]; then
     cp "$LLAMA_BIN" "src-tauri/binaries/siyadascribe-llama-server-${PLATFORM}"
@@ -276,7 +228,7 @@ else
     echo "⚠️  Warning: siyadascribe-whisper-server not found, skipping"
 fi
 
-# In debug mode, also copy C++ servers directly to target/debug/ (not needed for siyadascribe-pm/server - they're already there)
+# In debug mode, also copy C++ servers directly to target/debug/ (not needed for server - already there)
 if [ "$DEBUG_MODE" = true ]; then
     echo ""
     echo "Copying C++ servers to target/debug for dev mode..."
@@ -311,8 +263,7 @@ if [[ "$OSTYPE" == "darwin"* ]] && [ "$DEBUG_MODE" != true ]; then
         echo "Using signing identity: $SIGNING_IDENTITY"
 
         # Sign external binaries
-        for binary in src-tauri/binaries/siyadascribe-pm-${PLATFORM} \
-                     src-tauri/binaries/siyadascribe-llama-server-${PLATFORM} \
+        for binary in src-tauri/binaries/siyadascribe-llama-server-${PLATFORM} \
                      src-tauri/binaries/siyadascribe-whisper-server-${PLATFORM}; do
             if [ -f "$binary" ]; then
                 echo "Signing: $binary"
@@ -340,11 +291,10 @@ echo "=========================================="
 echo ""
 echo "Built components:"
 echo "  • Python server: src-tauri/server_dist/"
-echo "  • siyadascribe-pm: $PM_BIN"
 if [ "$SKIP_WHISPER" != true ]; then
-    echo "  • whisper-server: $WHISPER_BIN"
+    echo "  • parakeet-server: $WHISPER_BIN"
 else
-    echo "  • whisper-server: (skipped)"
+    echo "  • parakeet-server: (skipped)"
 fi
 if [ "$SKIP_LLAMA" != true ]; then
     echo "  • llama-server: $LLAMA_BIN"

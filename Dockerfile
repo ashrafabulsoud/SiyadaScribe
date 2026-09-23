@@ -1,5 +1,5 @@
 # Stage 1: Build the React app
-FROM node:lts-slim AS build
+FROM node:24-slim AS build
 
 # Set the working directory
 WORKDIR /usr/src/app
@@ -20,17 +20,17 @@ RUN npm run build
 FROM python:3.12-slim
 
 # Install uv
-COPY --from=ghcr.io/astral-sh/uv@sha256:03bdc89bb9798628846e60c3a9ad19006c8c3c724ccd2985a33145c039a0577b /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.11.32@sha256:df4cae8f3a96d175e2e5f992e597550000edbe78fdc2594d5cd8de1a217f504c /uv /usr/local/bin/uv
 
 # Set the working directory
 WORKDIR /usr/src/app
 
 # Set environment variable
 ENV DOCKER_CONTAINER=true
+# Use the uv-locked project venv at runtime
+ENV PATH=/usr/src/app/server/.venv/bin:$PATH
 
 RUN apt-get update && apt-get install -y \
-    gcc \
-    build-essential \
     tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*
 
@@ -49,7 +49,10 @@ RUN mkdir -p /usr/src/app/data \
     chown -R siyadascribe:siyadascribe /usr/src/app
 
 # Install Python dependencies
-RUN uv pip install --system --no-cache ./server[docker]
+RUN uv sync --directory server --locked --no-dev --extra docker
+
+# Pre-cache tiktoken encodings so they don't need to be fetched at runtime
+RUN python -c "import tiktoken; tiktoken.get_encoding('cl100k_base')"
 
 # Copy remaining server code
 COPY server/ ./server

@@ -1,18 +1,16 @@
 // Component for configuring user-specific settings.
-import {
-  Box,
-  Flex,
-  IconButton,
-  Text,
-  Collapse,
-  Input,
-  Select,
-  VStack,
-  FormControl,
-  FormLabel,
-} from "@chakra-ui/react";
-import { ChevronRightIcon, ChevronDownIcon } from "@chakra-ui/icons";
-import { FaUser } from "react-icons/fa";
+import { Box, Flex, HStack, IconButton, Text, Collapsible, Input, NativeSelect, Tabs, VStack, Field } from "@chakra-ui/react";
+import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { ChevronRightIcon, ChevronDownIcon } from "../common/icons";
+import { FaUser, FaFileAlt, FaEnvelopeOpenText, FaComments } from "react-icons/fa";
+import TemplateSettingsPanel from "./TemplateSettingsPanel";
+import LetterTemplatesPanel from "./LetterTemplatesPanel";
+import ChatSettingsPanel from "./ChatSettingsPanel";
+import { isChatEnabled } from "../../utils/helpers/featureFlags";
+import { settingsApi } from "../../utils/api/settingsApi";
+import { syncLanguage } from "../../i18n";
+import { UI_LANGUAGES, getLanguageName } from "../../utils/i18n/languages";
 
 const UserSettingsPanel = ({
   isCollapsed,
@@ -22,8 +20,38 @@ const UserSettingsPanel = ({
   specialties,
   templates,
   letterTemplates,
-  toast,
+  setTemplates,
 }) => {
+  const { t } = useTranslation();
+  const [capabilities, setCapabilities] = useState(null);
+
+  // Capabilities tell us whether the active STT model supports the selected
+  // language (local mode). Remote mode returns ["*"] (unrestricted).
+  useEffect(() => {
+    let cancelled = false;
+    settingsApi
+      .fetchCapabilities()
+      .then((caps) => {
+        if (!cancelled) setCapabilities(caps);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const sttLanguages = capabilities?.stt_languages || ["*"];
+  const isRemoteSTT = sttLanguages.includes("*");
+  const selectedLanguage = userSettings.preferred_language || "en";
+  const languageSupported =
+    isRemoteSTT || sttLanguages.includes(selectedLanguage);
+
+  const handleLanguageChange = (lang) => {
+    setUserSettings((prev) => ({ ...prev, preferred_language: lang }));
+    // Apply immediately so locale-aware formatting tracks the clinic language.
+    syncLanguage(lang);
+  };
+
   const handleDefaultTemplateChange = (templateKey) => {
     setUserSettings((prev) => ({
       ...prev,
@@ -41,129 +69,216 @@ const UserSettingsPanel = ({
       <Flex align="center" justify="space-between">
         <Flex align="center">
           <IconButton
-            icon={isCollapsed ? <ChevronRightIcon /> : <ChevronDownIcon />}
             onClick={() => setIsCollapsed(!isCollapsed)}
             aria-label="Toggle collapse"
             variant="outline"
             size="sm"
             mr="2"
-            className="collapse-toggle"
-          />
+            className="collapse-toggle">{isCollapsed ? <ChevronRightIcon /> : <ChevronDownIcon />}</IconButton>
           <FaUser size="1.2em" style={{ marginRight: "5px" }} />
           <Text as="h3">User Settings</Text>
         </Flex>
       </Flex>
-      <Collapse in={!isCollapsed} animateOpacity>
-        <VStack spacing={4} align="stretch" mt={4}>
-          <Box>
-            <Text fontSize="sm" mb="1">
-              Name
-            </Text>
-            <Input
-              size="sm"
-              value={userSettings.name || ""}
-              onChange={(e) =>
-                setUserSettings((prev) => ({
-                  ...prev,
-                  name: e.target.value,
-                }))
-              }
-              className="input-style"
-              placeholder="Enter your name"
-            />
-          </Box>
-          <Box>
-            <Text fontSize="sm" mb="1">
-              Specialty
-            </Text>
-            <Select
-              size="sm"
-              value={userSettings.specialty || ""}
-              onChange={(e) =>
-                setUserSettings((prev) => ({
-                  ...prev,
-                  specialty: e.target.value,
-                }))
-              }
-              className="input-style"
-              placeholder="Select your specialty"
-            >
-              {specialties.map((specialty) => (
-                <option key={specialty} value={specialty}>
-                  {specialty}
-                </option>
-              ))}
-            </Select>
-          </Box>
-          <Box>
-            <Text fontSize="sm" mb="1">
-              Output Language
-            </Text>
-            <Select
-              size="sm"
-              value={userSettings.output_language || "auto"}
-              onChange={(e) =>
-                setUserSettings((prev) => ({
-                  ...prev,
-                  output_language: e.target.value,
-                }))
-              }
-              className="input-style"
-            >
-              <option value="auto">Auto (match dictation)</option>
-              <option value="english">English</option>
-              <option value="arabic">Arabic (العربية)</option>
-              <option value="bilingual">Bilingual (EN + AR)</option>
-            </Select>
-            <Text fontSize="xs" mt="1" opacity={0.7}>
-              Language of generated notes, summaries, letters and chat.
-              "Auto" follows whatever language you dictate in.
-            </Text>
-          </Box>
-          <FormControl>
-            <FormLabel fontSize="sm" fontWeight={"bold"}>
-              Default Template
-            </FormLabel>
-            <Select
-              size="sm"
-              value={userSettings.default_template || ""}
-              onChange={(e) => handleDefaultTemplateChange(e.target.value)}
-              className="input-style"
-              placeholder="Select default template"
-            >
-              {/* Change this part to map over templates array correctly */}
-              {templates.map((template) => (
-                <option
-                  key={template.template_key}
-                  value={template.template_key}
-                >
-                  {template.template_name}
-                </option>
-              ))}
-            </Select>
-          </FormControl>
-          <FormControl>
-            <FormLabel fontSize="sm" fontWeight={"bold"}>
-              Default Letter Template
-            </FormLabel>
-            <Select
-              size="sm"
-              value={userSettings.default_letter_template_id || ""}
-              onChange={(e) =>
-                handleDefaultLetterTemplateChange(e.target.value)
-              }
-              className="input-style"
-              placeholder="Select default letter template"
-            >
-              {letterTemplates.map((template) => (
-                <option key={template.id} value={template.id}>
-                  {template.name}
-                </option>
-              ))}
-            </Select>
-          </FormControl>
-        </VStack>
-      </Collapse>
+      <Collapsible.Root open={!isCollapsed}>
+        <Collapsible.Content>
+          <Tabs.Root variant='enclosed' mt={4} defaultValue="0">
+            <Tabs.List>
+              <Tabs.Trigger className="tab-style" value="0">
+                <HStack>
+                  <FaUser />
+                  <Text>General</Text>
+                </HStack>
+              </Tabs.Trigger>
+              <Tabs.Trigger className="tab-style" value="2">
+                <HStack>
+                  <FaFileAlt />
+                  <Text>Note Templates</Text>
+                </HStack>
+              </Tabs.Trigger>
+              <Tabs.Trigger className="tab-style" value="3">
+                <HStack>
+                  <FaEnvelopeOpenText />
+                  <Text>Letter Templates</Text>
+                </HStack>
+              </Tabs.Trigger>
+              {isChatEnabled() && (
+                <Tabs.Trigger className="tab-style" value="4">
+                  <HStack>
+                    <FaComments />
+                    <Text>Quick Chat</Text>
+                  </HStack>
+                </Tabs.Trigger>
+              )}
+            </Tabs.List>
+            
+              <Tabs.Content value="0" className="floating-main">
+                <VStack gap={4} align="stretch">
+                  <Box>
+                    <Text fontSize="sm" mb="1">
+                      Name
+                    </Text>
+                    <Input
+                      size="sm"
+                      value={userSettings.name || ""}
+                      onChange={(e) =>
+                        setUserSettings((prev) => ({
+                          ...prev,
+                          name: e.target.value,
+                        }))
+                      }
+                      className="input-style"
+                      placeholder="Enter your name"
+                    />
+                  </Box>
+                  <Box>
+                    <Text fontSize="sm" mb="1">
+                      Specialty
+                    </Text>
+                    <NativeSelect.Root>
+                      <NativeSelect.Field
+                        size="sm"
+                        value={userSettings.specialty || ""}
+                        onChange={(e) =>
+                          setUserSettings((prev) => ({
+                            ...prev,
+                            specialty: e.target.value,
+                          }))
+                        }
+                        className="input-style"
+                        placeholder="Select your specialty">
+                        {specialties.map((specialty) => (
+                          <option key={specialty} value={specialty}>
+                            {specialty}
+                          </option>
+                        ))}
+                      </NativeSelect.Field>
+                      <NativeSelect.Indicator />
+                    </NativeSelect.Root>
+                  </Box>
+                  <Field.Root>
+                    <Field.Label fontSize="sm" fontWeight={"bold"}>
+                      {t("language.label")}
+                    </Field.Label>
+                    <NativeSelect.Root>
+                      <NativeSelect.Field
+                        size="sm"
+                        value={selectedLanguage}
+                        onChange={(e) => handleLanguageChange(e.target.value)}
+                        className="input-style">
+                        {UI_LANGUAGES.map((lang) => (
+                          <option key={lang.code} value={lang.code}>
+                            {lang.native} ({lang.name})
+                          </option>
+                        ))}
+                      </NativeSelect.Field>
+                      <NativeSelect.Indicator />
+                    </NativeSelect.Root>
+                    <Text fontSize="xs" className="pill-box-icons" mt={1}>
+                      {t("language.description")}
+                    </Text>
+                    {!languageSupported && (
+                      <Text fontSize="xs" mt={1}>
+                        {t("language.transcriptionUnsupported", {
+                          language: getLanguageName(selectedLanguage),
+                        })}
+                      </Text>
+                    )}
+                  </Field.Root>
+                  <Field.Root>
+                    <Field.Label fontSize="sm" fontWeight={"bold"}>
+                      {t("outputLanguage.label")}
+                    </Field.Label>
+                    <NativeSelect.Root>
+                      <NativeSelect.Field
+                        size="sm"
+                        value={userSettings.output_language || "auto"}
+                        onChange={(e) =>
+                          setUserSettings((prev) => ({
+                            ...prev,
+                            output_language: e.target.value,
+                          }))
+                        }
+                        className="input-style">
+                        <option value="auto">{t("outputLanguage.auto")}</option>
+                        <option value="english">{t("outputLanguage.english")}</option>
+                        <option value="arabic">{t("outputLanguage.arabic")}</option>
+                        <option value="bilingual">{t("outputLanguage.bilingual")}</option>
+                      </NativeSelect.Field>
+                      <NativeSelect.Indicator />
+                    </NativeSelect.Root>
+                    <Text fontSize="xs" className="pill-box-icons" mt={1}>
+                      {t("outputLanguage.description")}
+                    </Text>
+                  </Field.Root>
+                  <Field.Root>
+                    <Field.Label fontSize="sm" fontWeight={"bold"}>
+                      Default Template
+                    </Field.Label>
+                    <NativeSelect.Root>
+                      <NativeSelect.Field
+                        size="sm"
+                        value={userSettings.default_template || ""}
+                        onChange={(e) => handleDefaultTemplateChange(e.target.value)}
+                        className="input-style"
+                        placeholder="Select default template">
+                        {/* Change this part to map over templates array correctly */}
+                        {templates.map((template) => (
+                          <option
+                            key={template.template_key}
+                            value={template.template_key}
+                          >
+                            {template.template_name}
+                          </option>
+                        ))}
+                      </NativeSelect.Field>
+                      <NativeSelect.Indicator />
+                    </NativeSelect.Root>
+                  </Field.Root>
+                  <Field.Root>
+                    <Field.Label fontSize="sm" fontWeight={"bold"}>
+                      Default Letter Template
+                    </Field.Label>
+                    <NativeSelect.Root>
+                      <NativeSelect.Field
+                        size="sm"
+                        value={userSettings.default_letter_template_id || ""}
+                        onChange={(e) =>
+                          handleDefaultLetterTemplateChange(e.target.value)
+                        }
+                        className="input-style"
+                        placeholder="Select default letter template">
+                        {letterTemplates.map((template) => (
+                          <option key={template.id} value={template.id}>
+                            {template.name}
+                          </option>
+                        ))}
+                      </NativeSelect.Field>
+                      <NativeSelect.Indicator />
+                    </NativeSelect.Root>
+                  </Field.Root>
+                </VStack>
+              </Tabs.Content>
+
+              <Tabs.Content value="2" className="floating-main">
+                <TemplateSettingsPanel
+                  templates={templates}
+                  setTemplates={setTemplates}
+                />
+              </Tabs.Content>
+              <Tabs.Content value="3" className="floating-main">
+                <LetterTemplatesPanel />
+              </Tabs.Content>
+              {isChatEnabled() && (
+                <Tabs.Content value="4" className="floating-main">
+                  <ChatSettingsPanel
+                    userSettings={userSettings}
+                    setUserSettings={setUserSettings}
+                  />
+                </Tabs.Content>
+              )}
+          </Tabs.Root>
+        </Collapsible.Content>
+      </Collapsible.Root>
     </Box>
   );
 };

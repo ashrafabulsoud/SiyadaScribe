@@ -3,7 +3,8 @@ Tests for configuration endpoints.
 Uses TestClient and checks JSON response structure.
 """
 
-from fastapi import FastAPI
+import pytest
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from server.api.config import router
@@ -67,6 +68,21 @@ def test_update_config():
     assert "message" in data and ("success" in message.lower())
 
 
+def test_update_config_strips_protected_audit_key():
+    """AUDIT_RETENTION_DAYS must never be writable via the API (audit-wipe chain)."""
+    from server.database.config.manager import config_manager
+
+    original = config_manager.get_config().get("AUDIT_RETENTION_DAYS")
+    response = client.post(
+        "/api/config/global",
+        json={"AUDIT_RETENTION_DAYS": 0, "TEST_CONFIG": "audit_strip_probe"},
+    )
+    assert response.status_code == 200
+    config = config_manager.get_config()
+    assert config.get("AUDIT_RETENTION_DAYS") == original
+    assert config.get("TEST_CONFIG") == "audit_strip_probe"
+
+
 def test_update_options():
     new_options = {"TEST_OPTION": "test_option_value"}
     response = client.post("/api/config/options/TEST_CATEGORY", json=new_options)
@@ -75,18 +91,446 @@ def test_update_options():
     assert "updated" in data.get("message", "").lower()
 
 
-def test_reset_to_defaults():
-    response = client.post("/api/config/reset-to-defaults")
+def test_reset_options_to_defaults():
+    response = client.post("/api/config/options/reset-to-defaults")
     assert response.status_code == 200
     data = response.json()
     assert "reset" in data.get("message", "").lower()
+
+
+def test_preferred_language_defaults_to_en():
+    """preferred_language should default to 'en' on a fresh database."""
+    response = client.get("/api/config/user")
+    assert response.status_code == 200
+    assert response.json().get("preferred_language") == "en"
+
+
+def test_preferred_language_round_trip():
+    """preferred_language should persist and read back through the user settings API."""
+    response = client.post("/api/config/user", json={"preferred_language": "es"})
+    assert response.status_code == 200
+
+    response = client.get("/api/config/user")
+    assert response.status_code == 200
+    assert response.json().get("preferred_language") == "es"
+
+    # Restore default to keep the shared test DB in a known state.
+    client.post("/api/config/user", json={"preferred_language": "en"})
+
+
+def test_preferred_language_preserves_other_settings():
+    """Updating preferred_language must not clobber other user settings (read-modify-write)."""
+    client.post("/api/config/user", json={"name": "Dr Roundtrip", "specialty": "cardiology"})
+
+    response = client.post("/api/config/user", json={"preferred_language": "fr"})
+    assert response.status_code == 200
+
+    settings = client.get("/api/config/user").json()
+    assert settings["preferred_language"] == "fr"
+    assert settings["name"] == "Dr Roundtrip"
+    assert settings["specialty"] == "cardiology"
+
+    # Restore defaults.
+    client.post("/api/config/user", json={"preferred_language": "en", "name": "", "specialty": ""})
+
+
+def test_capabilities_remote_mode_unrestricted():
+    """In remote mode (default), stt_languages is the unrestricted sentinel."""
+    response = client.get("/api/config/capabilities")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["stt_mode"] == "remote"
+    assert data["stt_languages"] == ["*"]
+
+
+def test_capabilities_local_mode_reports_active_model_languages():
+    """In local mode, stt_languages follows the active model's declared languages."""
+    client.post("/api/config/global", json={"LLM_PROVIDER": "local", "WHISPER_BASE_URL": ""})
+
+    data = client.get("/api/config/capabilities").json()
+    assert data["stt_mode"] == "local"
+    # No model selected in the test DB -> defaults to the English medical model.
+    assert data["stt_languages"] == ["en"]
+
+    # Restore so other tests see remote mode again.
+    client.post("/api/config/global", json={"LLM_PROVIDER": "openai", "WHISPER_BASE_URL": ""})
+
+
+def test_language_directive_injected_only_for_non_english(monkeypatch):
+    """The LLM output-language directive is injected only for non-English."""
+    from server.database.config.manager import config_manager
+    from server.llm_client.client import AsyncLLMClient
+
+    llm = AsyncLLMClient(provider_type="openai", base_url="http://localhost:9999")
+    base_messages = [{"role": "user", "content": "hello"}]
+
+    # English (default): no directive, behavior unchanged.
+    monkeypatch.setattr(config_manager, "get_user_settings", lambda: {"preferred_language": "en"})
+    assert llm._with_language_directive(base_messages) == base_messages
+
+    # Spanish: a system directive is prepended; original messages preserved.
+    monkeypatch.setattr(config_manager, "get_user_settings", lambda: {"preferred_language": "es"})
+    out = llm._with_language_directive(base_messages)
+    assert out[0]["role"] == "system"
+    assert "Spanish" in out[0]["content"]
+    assert out[1:] == base_messages
+
+    # Spanish with an existing leading system message: directive must MERGE into
+    # it (one system message), not prepend a second — provider templates reject
+    # multiple system messages.
+    with_system = [{"role": "system", "content": "original"}, {"role": "user", "content": "hi"}]
+    out = llm._with_language_directive(with_system)
+    assert sum(1 for m in out if m["role"] == "system") == 1
+    assert out[0]["content"].startswith("You are operating in a Spanish-speaking")
+    assert out[0]["content"].endswith("original")
+    assert out[1:] == with_system[1:]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "output_language, preferred_language, expected, absent",
+    [
+        ("arabic", "en", "Modern Standard Arabic", "English-speaking clinical setting"),
+        ("arabic", "es", "Modern Standard Arabic", "Spanish-speaking clinical setting"),
+        ("auto", "es", "Spanish-speaking clinical setting", "OUTPUT LANGUAGE:"),
+    ],
+)
+async def test_output_language_directive_precedence(
+    monkeypatch, output_language, preferred_language, expected, absent
+):
+    from unittest.mock import AsyncMock
+
+    from server.database.config.manager import config_manager
+    from server.llm_client import client as client_module
+
+    monkeypatch.setattr(
+        config_manager,
+        "get_user_settings",
+        lambda: {
+            "output_language": output_language,
+            "preferred_language": preferred_language,
+        },
+    )
+    provider = AsyncMock(return_value={"message": {"content": "done"}})
+    monkeypatch.setattr(client_module, "openai_compatible_chat", provider)
+    llm = client_module.AsyncLLMClient(provider_type="openai", base_url="http://localhost:9999")
+    messages = [{"role": "system", "content": "original"}, {"role": "user", "content": "hi"}]
+    await llm.chat(model="test", messages=messages)
+    sent = provider.call_args.args[2]
+    assert sum(message["role"] == "system" for message in sent) == 1
+    assert expected in sent[0]["content"]
+    assert absent not in sent[0]["content"]
+    assert "original" in sent[0]["content"]
+    assert sent[1:] == messages[1:]
+    assert messages[0]["content"] == "original"
+
+
+def test_policy_keys_present_in_global_config():
+    """Migration v9 backfills the three policy keys into config KV."""
+    data = client.get("/api/config/global").json()
+    assert data["DISABLED_TOOLS"] == ["pubmed_search", "wiki_search"]
+    assert data["STORE_ORIGINAL_PDFS"] is False
+    assert data["REQUIRE_SCRIBE_CONSENT"] is False
+
+
+def test_policy_keys_round_trip_via_global():
+    """Policy keys are read/written via the global config endpoint."""
+    client.post(
+        "/api/config/global",
+        json={
+            "DISABLED_TOOLS": ["pubmed_search"],
+            "STORE_ORIGINAL_PDFS": True,
+            "REQUIRE_SCRIBE_CONSENT": True,
+        },
+    )
+    data = client.get("/api/config/global").json()
+    assert data["DISABLED_TOOLS"] == ["pubmed_search"]
+    assert data["STORE_ORIGINAL_PDFS"] is True
+    assert data["REQUIRE_SCRIBE_CONSENT"] is True
+
+    # Restore defaults so other tests see a known state.
+    client.post(
+        "/api/config/global",
+        json={
+            "DISABLED_TOOLS": ["pubmed_search", "wiki_search"],
+            "STORE_ORIGINAL_PDFS": False,
+            "REQUIRE_SCRIBE_CONSENT": False,
+        },
+    )
+
+
+def test_post_user_filters_migrated_keys():
+    """POST /user must drop disabled_tools/advanced_options (relocated to config)."""
+    client.post(
+        "/api/config/user",
+        json={
+            "disabled_tools": ["should_be_dropped"],
+            "advanced_options": {"store_original_pdfs": True},
+            "name": "FilterCheck",
+        },
+    )
+    settings = client.get("/api/config/user").json()
+    assert "disabled_tools" not in settings
+    assert "advanced_options" not in settings
+    assert settings["name"] == "FilterCheck"
+
+    # The policy keys live in global config, unaffected by the user POST.
+    config = client.get("/api/config/global").json()
+    assert "should_be_dropped" not in config["DISABLED_TOOLS"]
+
+    # Restore.
+    client.post("/api/config/user", json={"name": ""})
+
+
+def test_v9_backfills_policy_keys_from_user_settings():
+    """Migration v9 reads the legacy user_settings columns and writes config KV."""
+    import json
+
+    from server.database.config.manager import config_manager
+    from server.database.core.migrations.v9_policy_keys import migrate
+
+    config_manager.refresh_db()
+    # Plant custom values in the legacy (now-dead) columns.
+    with config_manager.db.transaction() as cursor:
+        cursor.execute(
+            "UPDATE user_settings SET disabled_tools = ?, advanced_options = ?",
+            (
+                json.dumps(["legacy_tool"]),
+                json.dumps({"store_original_pdfs": True, "require_scribe_consent": True}),
+            ),
+        )
+        # Re-run the migration (idempotent INSERT OR REPLACE).
+        migrate(cursor, None)
+
+    config_manager._load_configs()
+    config = config_manager.get_config()
+    assert config["DISABLED_TOOLS"] == ["legacy_tool"]
+    assert config["STORE_ORIGINAL_PDFS"] is True
+    assert config["REQUIRE_SCRIBE_CONSENT"] is True
+
+    # Restore defaults.
+    client.post(
+        "/api/config/global",
+        json={
+            "DISABLED_TOOLS": ["pubmed_search", "wiki_search"],
+            "STORE_ORIGINAL_PDFS": False,
+            "REQUIRE_SCRIBE_CONSENT": False,
+        },
+    )
+
+
+def test_normalize_base_url_rejects_non_http_schemes():
+    """Only http/https base URLs are accepted; /v1 + slash normalization intact."""
+    import pytest
+
+    from server.utils.url_utils import normalize_base_url
+
+    assert normalize_base_url("http://a:1/v1/") == "http://a:1"
+    assert normalize_base_url("https://a:1/api/openai/v1") == "https://a:1/api/openai"
+    assert normalize_base_url("http://a:1") == "http://a:1"
+    with pytest.raises(ValueError):
+        normalize_base_url("file:///etc/passwd")
+    with pytest.raises(ValueError):
+        normalize_base_url("gopher://x")
+    with pytest.raises(ValueError):
+        normalize_base_url("")
+
+
+def test_llm_models_stored_key_only_travels_to_stored_url(monkeypatch):
+    """The stored LLM_API_KEY must never be attached to a caller-supplied foreign URL."""
+    from server.database.config.manager import config_manager
+
+    config_manager.update_config(
+        {"LLM_BASE_URL": "http://stored.example/v1", "LLM_API_KEY": "sk-stored-secret"}
+    )
+
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {"data": [{"id": "m"}]}
+
+    class FakeClient:
+        def __init__(self, headers=None, **kwargs):
+            captured["headers"] = headers or {}
+            captured["client_kwargs"] = kwargs
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def get(self, url, timeout=None):
+            captured["url"] = url
+            captured["timeout"] = timeout
+            return FakeResponse()
+
+    monkeypatch.setattr("server.api.config.models.httpx.AsyncClient", FakeClient)
+
+    # Foreign URL, no caller key: no Authorization header at all.
+    r = client.get(
+        "/api/config/llm/models",
+        params={"provider": "openai", "baseUrl": "http://attacker.example/"},
+    )
+    assert r.status_code == 200
+    assert "Authorization" not in captured["headers"]
+
+    # Stored URL (± /v1 and trailing slash): stored key attached.
+    for base in ("http://stored.example", "http://stored.example/", "http://stored.example/v1"):
+        r = client.get("/api/config/llm/models", params={"provider": "openai", "baseUrl": base})
+        assert r.status_code == 200
+        assert captured["headers"].get("Authorization") == "Bearer sk-stored-secret"
+
+    # Caller key with foreign URL: caller key used, stored key never leaks.
+    r = client.get(
+        "/api/config/llm/models",
+        params={"provider": "openai", "baseUrl": "http://attacker.example/", "apiKey": "sk-caller"},
+    )
+    assert r.status_code == 200
+    assert captured["headers"].get("Authorization") == "Bearer sk-caller"
+
+    # Case-different URL is NOT treated as the stored URL (fail closed).
+    r = client.get(
+        "/api/config/llm/models",
+        params={"provider": "openai", "baseUrl": "HTTP://STORED.EXAMPLE/"},
+    )
+    assert r.status_code == 200
+    assert "Authorization" not in captured["headers"]
+
+    # Non-http scheme: rejected with 400, no outbound request.
+    r = client.get(
+        "/api/config/llm/models",
+        params={"provider": "openai", "baseUrl": "file:///etc/passwd"},
+    )
+    assert r.status_code == 400
+
+    # Restore so other tests see a clean config.
+    config_manager.update_config({"LLM_BASE_URL": "", "LLM_API_KEY": ""})
+
+
+# --- access control: MCP configuration and outbound-fetch endpoints ----------
+
+
+@pytest.mark.usefixtures("clinician_ctx")
+def test_mcp_sync_routes_require_admin():
+    from server.api.config.mcp import (
+        McpServerCreate,
+        McpServerUpdate,
+        add_mcp_server,
+        delete_mcp_server,
+        get_mcp_server,
+        list_enabled_mcp_servers,
+        list_mcp_servers,
+        toggle_mcp_server,
+        update_mcp_server,
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        list_mcp_servers()
+    assert exc.value.status_code == 403
+
+    for call in (
+        lambda: list_enabled_mcp_servers(),
+        lambda: get_mcp_server(1),
+        lambda: add_mcp_server(McpServerCreate(name="x", url="http://evil.example")),
+        lambda: update_mcp_server(1, McpServerUpdate(url="http://evil.example")),
+        lambda: delete_mcp_server(1),
+        lambda: toggle_mcp_server(1, True),
+    ):
+        with pytest.raises(HTTPException) as exc:
+            call()
+        assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("clinician_ctx")
+async def test_mcp_async_routes_require_admin():
+    from server.api.config.mcp import refresh_mcp_tools, test_mcp_server
+
+    for call in (lambda: test_mcp_server(1), lambda: refresh_mcp_tools()):
+        with pytest.raises(HTTPException) as exc:
+            await call()
+        assert exc.value.status_code == 403
+
+
+def test_assert_http_url_matrix():
+    from server.utils.url_utils import assert_http_url
+
+    for good in ("http://localhost:3000/mcp", "https://example.com/sse", "http://10.0.0.5:8080"):
+        assert_http_url(good)  # no exception
+
+    for bad in (
+        "",
+        "   ",
+        "file:///etc/passwd",
+        "gopher://127.0.0.1:70/_",
+        "ftp://example.com",
+        "javascript:alert(1)",
+        "not-a-url",
+        "http://",  # scheme ok but no host
+        "/relative/path",
+    ):
+        with pytest.raises(ValueError):
+            assert_http_url(bad)
+
+
+def test_mcp_manager_rejects_non_http_urls():
+    from server.database.config.mcp_manager import mcp_config_manager
+
+    for url in ("file:///etc/passwd", "gopher://127.0.0.1:70/_", "ftp://example.com"):
+        with pytest.raises(ValueError):
+            mcp_config_manager.add_server(name="bad", url=url)
+
+    # Lifecycle: a valid server can be registered and updated, but its URL
+    # can never be flipped to a dangerous scheme.
+    server = mcp_config_manager.add_server(name="pt-http-ok", url="http://127.0.0.1:39999/mcp")
+    assert server is not None
+    try:
+        assert server["url"] == "http://127.0.0.1:39999/mcp"
+        with pytest.raises(ValueError):
+            mcp_config_manager.update_server(server["id"], url="file:///etc/passwd")
+    finally:
+        mcp_config_manager.remove_server(server["id"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("clinician_ctx")
+async def test_url_validation_requires_admin():
+    from server.api.config.validation import validate_url
+
+    with pytest.raises(HTTPException) as exc:
+        await validate_url(url="http://127.0.0.1:1", type="openai")
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("clinician_ctx")
+async def test_llm_models_requires_admin():
+    from server.api.config.models import get_llm_models
+
+    with pytest.raises(HTTPException) as exc:
+        await get_llm_models(provider="openai", baseUrl="http://127.0.0.1:1")
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("clinician_ctx")
+async def test_whisper_models_requires_admin():
+    from server.api.config.models import get_whisper_models
+
+    with pytest.raises(HTTPException) as exc:
+        await get_whisper_models(whisperEndpoint="http://127.0.0.1:1")
+    assert exc.value.status_code == 403
 
 
 def test_user_settings_output_language_defaults_to_auto():
     response = client.get("/api/config/user")
     assert response.status_code == 200
     data = response.json()
-    assert data.get("output_language", "auto") == "auto"
+    assert data["output_language"] == "auto"
 
 
 def test_user_settings_output_language_round_trips():
@@ -100,3 +544,34 @@ def test_user_settings_output_language_round_trips():
 
     # Restore the default so other tests are unaffected.
     client.post("/api/config/user", json={"output_language": "auto"})
+
+
+@pytest.mark.parametrize(
+    "value, expected", [(None, "auto"), ("", "auto"), ("invalid", "auto"), (" Arabic ", "arabic")]
+)
+def test_output_language_normalized_and_preserved(value, expected):
+    from server.database.config.manager import config_manager
+
+    original = config_manager.get_user_settings()
+    try:
+        config_manager.update_user_settings({"output_language": value})
+        config_manager.update_user_settings({"specialty": "cardiology"})
+        assert config_manager.get_user_settings()["output_language"] == expected
+        # Also normalize pre-existing invalid database values when reading.
+        where, params = config_manager._user_settings_where()
+        with config_manager.db.transaction() as cursor:
+            cursor.execute(
+                f"UPDATE user_settings SET output_language = ? WHERE {where}", [value, *params]
+            )
+        assert config_manager.get_user_settings()["output_language"] == expected
+    finally:
+        config_manager.update_user_settings(original)
+
+
+def test_whisper_language_default_and_round_trip():
+    assert client.get("/api/config/global").json()["WHISPER_LANGUAGE"] == "auto"
+    try:
+        assert client.post("/api/config/global", json={"WHISPER_LANGUAGE": "ar"}).status_code == 200
+        assert client.get("/api/config/global").json()["WHISPER_LANGUAGE"] == "ar"
+    finally:
+        client.post("/api/config/global", json={"WHISPER_LANGUAGE": "auto"})

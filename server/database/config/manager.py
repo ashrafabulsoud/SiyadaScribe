@@ -1,8 +1,17 @@
 import json
+import logging
 from threading import Lock
 
 import sqlcipher3 as sqlite3
+from server.database.config.defaults.prompts import DEFAULT_PROMPTS
 from server.database.core.connection import get_db, is_db_initialized
+from server.utils.current_user import current_user_id
+from server.utils.language import normalize_output_language
+
+logger = logging.getLogger(__name__)
+
+
+CAPABILITY_PREFIX = "CAPABILITY:"
 
 
 class ConfigManager:
@@ -10,6 +19,7 @@ class ConfigManager:
 
     _instance = None
     _lock = Lock()
+    _cache_lock = Lock()
 
     def __new__(cls):
         with cls._lock:
@@ -32,7 +42,8 @@ class ConfigManager:
 
         try:
             # Test if connection is still alive
-            self.db.cursor.execute("SELECT 1")
+            with self.db.read() as cursor:
+                cursor.execute("SELECT 1")
         except (sqlite3.ProgrammingError, sqlite3.OperationalError):
             # Connection is closed or broken, get fresh reference
             self.db = get_db()
@@ -40,44 +51,59 @@ class ConfigManager:
     def _is_database_empty(self):
         """Checks if the config, prompts, and options tables are empty."""
         self.refresh_db()
-        self.db.cursor.execute("SELECT COUNT(*) FROM config")
-        config_count = self.db.cursor.fetchone()[0]
-        self.db.cursor.execute("SELECT COUNT(*) FROM prompts")
-        prompts_count = self.db.cursor.fetchone()[0]
-        self.db.cursor.execute("SELECT COUNT(*) FROM options")
-        options_count = self.db.cursor.fetchone()[0]
+        with self.db.read() as cursor:
+            cursor.execute("SELECT COUNT(*) FROM config")
+            config_count = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM prompts")
+            prompts_count = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM options")
+            options_count = cursor.fetchone()[0]
         return config_count == 0 and prompts_count == 0 and options_count == 0
 
     def _load_configs(self):
-        """Loads configurations, prompts, and options from the database."""
+        """Loads configurations, prompts, and options from the database.
+
+        Builds into local dicts and swaps them in atomically so concurrent
+        readers never observe a partially populated cache.
+        """
         self.refresh_db()
-        self.config = {}
-        self.prompts = {}
+        with self.db.read() as cursor:
+            config = {}
+            capabilities = {}
+            cursor.execute("SELECT key, value FROM config")
+            for row in cursor.fetchall():
+                key = row["key"]
+                value = json.loads(row["value"])
+                if key.startswith(CAPABILITY_PREFIX):
+                    capabilities[key[len(CAPABILITY_PREFIX) :]] = value
+                else:
+                    config[key] = value
 
-        # Load config
-        self.db.cursor.execute("SELECT key, value FROM config")
-        for row in self.db.cursor.fetchall():
-            self.config[row["key"]] = json.loads(row["value"])
+            prompts = {}
+            cursor.execute("SELECT key, system FROM prompts")
+            for row in cursor.fetchall():
+                prompts[row["key"]] = {"system": row["system"]}
 
-        # Load prompts
-        self.db.cursor.execute("SELECT key, system FROM prompts")
-        for row in self.db.cursor.fetchall():
-            self.prompts[row["key"]] = {"system": row["system"]}
+            options = {}
+            cursor.execute("SELECT category, key, value FROM options")
+            for row in cursor.fetchall():
+                category = row["category"]
+                key = row["key"]
+                value = json.loads(row["value"])
+                if category not in options:
+                    options[category] = {}
+                options[category][key] = value
 
-        # Load options
-        self.options = {}
-        self.db.cursor.execute("SELECT category, key, value FROM options")
-        for row in self.db.cursor.fetchall():
-            category = row["category"]
-            key = row["key"]
-            value = json.loads(row["value"])
-            if category not in self.options:
-                self.options[category] = {}
-            self.options[category][key] = value
+            with self._cache_lock:
+                self.config = config
+                self.capabilities = capabilities
+                self.prompts = prompts
+                self.options = options
 
     def get_config(self):
         """Returns the configuration settings with fallbacks applied."""
-        config = self.config.copy()
+        with self._cache_lock:
+            config = self.config.copy()
         # Fall back to PRIMARY_MODEL if SECONDARY_MODEL is not set
         if not config.get("SECONDARY_MODEL"):
             config["SECONDARY_MODEL"] = config.get("PRIMARY_MODEL", "")
@@ -85,12 +111,13 @@ class ConfigManager:
 
     def get_prompts(self):
         """Returns the prompts."""
-        return self.prompts
+        with self._cache_lock:
+            return self.prompts
 
     def get_prompts_and_options(self):
         """Returns the prompts and options in a structured format."""
-        structured_prompts = {"prompts": self.prompts, "options": self.options}
-        return structured_prompts
+        with self._cache_lock:
+            return {"prompts": self.prompts, "options": self.options}
 
     def update_config(self, new_config):
         """Updates the configuration settings in the database."""
@@ -99,102 +126,155 @@ class ConfigManager:
         if "PRIMARY_MODEL" in new_config:
             new_config["REASONING_MODEL"] = new_config["PRIMARY_MODEL"]
 
-        for key, value in new_config.items():
-            self.db.cursor.execute(
-                "INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)",
-                (key, json.dumps(value)),
-            )
-        self.db.commit()
+        with self.db.transaction() as cursor:
+            for key, value in new_config.items():
+                cursor.execute(
+                    "INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)",
+                    (key, json.dumps(value)),
+                )
         self._load_configs()
+
+    def get_capabilities(self) -> dict:
+        """Returns all stored capability blobs, keyed without the namespace prefix."""
+        with self._cache_lock:
+            return self.capabilities
+
+    def get_capability(self, key: str):
+        """Returns a stored capability blob for ``key``, or None if absent."""
+        with self._cache_lock:
+            return self.capabilities.get(key)
+
+    def set_capability(self, key: str, value: dict):
+        """Writes a capability blob (namespaced config row), write-through to the cache."""
+        self.refresh_db()
+        namespaced = f"{CAPABILITY_PREFIX}{key}"
+        with self.db.transaction() as cursor:
+            cursor.execute(
+                "INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)",
+                (namespaced, json.dumps(value)),
+            )
+        with self._cache_lock:
+            self.capabilities[key] = value
+
+    def delete_capability(self, key: str):
+        """Removes a capability blob from the store and cache."""
+        self.refresh_db()
+        namespaced = f"{CAPABILITY_PREFIX}{key}"
+        with self.db.transaction() as cursor:
+            cursor.execute("DELETE FROM config WHERE key = ?", (namespaced,))
+        with self._cache_lock:
+            self.capabilities.pop(key, None)
 
     def update_prompts(self, new_prompts):
         """Updates the prompts in the database."""
         self.refresh_db()
-        for key, prompt in new_prompts.items():
-            self.db.cursor.execute(
-                """
-                INSERT OR REPLACE INTO prompts
-                (key, system)
-                VALUES (?, ?)
-                """,
-                (
-                    key,
-                    prompt.get("system", ""),
-                ),
-            )
-        self.db.commit()
+        with self.db.transaction() as cursor:
+            for key, prompt in new_prompts.items():
+                cursor.execute(
+                    """
+                    INSERT OR REPLACE INTO prompts
+                    (key, system)
+                    VALUES (?, ?)
+                    """,
+                    (
+                        key,
+                        prompt.get("system", ""),
+                    ),
+                )
         self._load_configs()
 
     def get_all_options(self):
         """Returns all options."""
-        return self.options
+        with self._cache_lock:
+            return self.options
 
     def get_options(self, category):
         """Returns options for a specific category."""
-        return self.options.get(category, {})
+        with self._cache_lock:
+            return self.options.get(category, {})
 
     def update_options(self, category, new_options):
         """Updates options for a specific category in the database."""
         self.refresh_db()
-        if category not in self.options:
-            self.options[category] = {}
+        # Snapshot existing keys for the category; cache is rebuilt from DB
+        # after commit, so we never mutate self.options before the write lands.
+        with self._cache_lock:
+            existing_keys = set(self.options.get(category, {}).keys())
 
-        # Update only if the key is present and convert types
-        for key, value in new_options.items():
-            if key in self.options[category] or key == "num_ctx" or key == "temperature":
-                # Convert types before saving
-                if key == "temperature":
-                    value = float(value)
-                elif key == "num_ctx":
-                    value = int(value)
+        with self.db.transaction() as cursor:
+            # Update only if the key is present and convert types
+            for key, value in new_options.items():
+                if key in existing_keys or key == "num_ctx" or key == "temperature":
+                    # Convert types before saving
+                    if key == "temperature":
+                        value = float(value)
+                    elif key == "num_ctx":
+                        value = int(value)
 
-                self.options[category][key] = value
-
-                # Save to database with converted value
-                self.db.cursor.execute(
-                    "INSERT OR REPLACE INTO options (category, key, value) VALUES (?, ?, ?)",
-                    (category, key, json.dumps(value)),
-                )
-
-        self.db.commit()
+                    cursor.execute(
+                        "INSERT OR REPLACE INTO options (category, key, value) VALUES (?, ?, ?)",
+                        (category, key, json.dumps(value)),
+                    )
         self._load_configs()
 
-    def reset_to_defaults(self):
-        """Resets prompts and options to their default values."""
+    def reset_options_to_defaults(self):
+        """Resets options to their default values. Preserves prompts and config."""
         self.refresh_db()
-        # Clear existing data for prompts and options
-        self.db.cursor.execute("DELETE FROM prompts")
-        self.db.cursor.execute("DELETE FROM options")
-        self.db.commit()
 
-        self._initialize_database()
+        with self.db.transaction() as cursor:
+            cursor.execute("DELETE FROM options")
+
+            # Re-seed default options from DEFAULT_PROMPTS
+            default_options = DEFAULT_PROMPTS["options"].get("general", {})
+            for category, options in DEFAULT_PROMPTS["options"].items():
+                if category != "reasoning":
+                    for key, _value in options.items():
+                        actual_value = options.get(key, default_options.get(key))
+                        if actual_value is not None:
+                            cursor.execute(
+                                "INSERT OR REPLACE INTO options (category, key, value) VALUES (?, ?, ?)",
+                                (category, key, json.dumps(actual_value)),
+                            )
+        self._load_configs()
 
     def _initialize_database(self):
         """Initialize database if empty (now just a check)"""
         self.refresh_db()
-        self.db.cursor.execute("SELECT COUNT(*) FROM config")
-        config_count = self.db.cursor.fetchone()[0]
+        with self.db.read() as cursor:
+            cursor.execute("SELECT COUNT(*) FROM config")
+            config_count = cursor.fetchone()[0]
         if config_count == 0:
             self._load_configs()  # Just load whatever is there
 
+    @staticmethod
+    def _user_settings_where() -> tuple[str, list]:
+        uid = current_user_id()
+        if uid is None:
+            return "user_id IS NULL", []
+        return "user_id = ?", [uid]
+
     def get_user_settings(self):
-        """Retrieves user settings from the database."""
+        """Retrieves user settings for the current user from the database."""
         self.refresh_db()
-        self.db.cursor.execute("""
-            SELECT name, specialty,
-                quick_chat_1_title, quick_chat_1_prompt,
-                quick_chat_2_title, quick_chat_2_prompt,
-                quick_chat_3_title, quick_chat_3_prompt,
-                default_template_key,
-                default_letter_template_id,
-                has_completed_splash_screen,
-                scribe_is_ambient,
-                disabled_tools,
-                advanced_options,
-                output_language
-            FROM user_settings LIMIT 1
-            """)
-        result = self.db.cursor.fetchone()
+        where, params = self._user_settings_where()
+        with self.db.read() as cursor:
+            cursor.execute(
+                f"""
+                SELECT name, specialty,
+                    quick_chat_1_title, quick_chat_1_prompt,
+                    quick_chat_2_title, quick_chat_2_prompt,
+                    quick_chat_3_title, quick_chat_3_prompt,
+                    default_template_key,
+                    default_letter_template_id,
+                    has_completed_splash_screen,
+                    preferred_language,
+                    output_language
+                FROM user_settings
+                WHERE {where}
+                """,
+                params,
+            )
+            result = cursor.fetchone()
 
         if result:
             settings = dict(result)
@@ -203,75 +283,100 @@ class ConfigManager:
                 settings["has_completed_splash_screen"] = bool(
                     settings["has_completed_splash_screen"]
                 )
-            if "scribe_is_ambient" in settings:
-                settings["scribe_is_ambient"] = bool(settings["scribe_is_ambient"])
-            if settings.get("disabled_tools"):
-                settings["disabled_tools"] = json.loads(settings["disabled_tools"])
-            else:
-                settings["disabled_tools"] = ["pubmed_search", "wiki_search"]
-            if settings.get("advanced_options"):
-                settings["advanced_options"] = json.loads(settings["advanced_options"])
-            else:
-                settings["advanced_options"] = {}
-            if not settings.get("output_language"):
-                settings["output_language"] = "auto"
+            if not settings.get("preferred_language"):
+                settings["preferred_language"] = "en"
+            settings["output_language"] = normalize_output_language(settings.get("output_language"))
             return settings
         return {
             "name": "",
             "specialty": "",
-            "quick_chat_1_title": "Critique my plan",
-            "quick_chat_1_prompt": "Critique my plan",
-            "quick_chat_2_title": "Any additional investigations",
-            "quick_chat_2_prompt": "Any additional investigations",
-            "quick_chat_3_title": "Any differentials to consider",
-            "quick_chat_3_prompt": "Any differentials to consider",
+            "quick_chat_1_title": "Review my plan",
+            "quick_chat_1_prompt": "Review my plan",
+            "quick_chat_2_title": "Additional points to review",
+            "quick_chat_2_prompt": "Additional points to review",
+            "quick_chat_3_title": "Other conditions worth reviewing",
+            "quick_chat_3_prompt": "Other conditions worth reviewing",
             "default_template_key": None,
             "default_letter_template_id": None,
             "has_completed_splash_screen": False,
-            "scribe_is_ambient": True,
-            "disabled_tools": ["pubmed_search", "wiki_search"],
-            "advanced_options": {},
+            "preferred_language": "en",
             "output_language": "auto",
         }
 
     def update_user_settings(self, settings: dict):
         self.refresh_db()
-        self.db.cursor.execute("DELETE FROM user_settings")
-        self.db.cursor.execute(
-            """
-            INSERT INTO user_settings (
-                name, specialty,
-                quick_chat_1_title, quick_chat_1_prompt,
-                quick_chat_2_title, quick_chat_2_prompt,
-                quick_chat_3_title, quick_chat_3_prompt,
-                default_template_key,
-                default_letter_template_id,
-                has_completed_splash_screen,
-                scribe_is_ambient,
-                disabled_tools,
-                advanced_options,
-                output_language
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                settings.get("name", ""),
-                settings.get("specialty", ""),
-                settings.get("quick_chat_1_title", "Critique my plan"),
-                settings.get("quick_chat_1_prompt", "Critique my plan"),
-                settings.get("quick_chat_2_title", "Any additional investigations"),
-                settings.get("quick_chat_2_prompt", "Any additional investigations"),
-                settings.get("quick_chat_3_title", "Any differentials to consider"),
-                settings.get("quick_chat_3_prompt", "Any differentials to consider"),
-                settings.get("default_template_key"),
-                settings.get("default_letter_template_id"),
-                bool(settings.get("has_completed_splash_screen", False)),
-                bool(settings.get("scribe_is_ambient", True)),
-                json.dumps(settings.get("disabled_tools", ["pubmed_search", "wiki_search"])),
-                json.dumps(settings.get("advanced_options", {})),
-                settings.get("output_language", "auto"),
-            ),
-        )
-        self.db.commit()
+        uid = current_user_id()
+        # Read-modify-write under one transaction so a concurrent update
+        # cannot interleave with the DELETE/INSERT below.
+        with self.db.transaction() as cursor:
+            where, params = self._user_settings_where()
+            existing = self._read_user_settings(cursor)
+            settings = {**existing, **settings}
+            cursor.execute(f"DELETE FROM user_settings WHERE {where}", params)
+            cursor.execute(
+                """
+                INSERT INTO user_settings (
+                    name, specialty,
+                    quick_chat_1_title, quick_chat_1_prompt,
+                    quick_chat_2_title, quick_chat_2_prompt,
+                    quick_chat_3_title, quick_chat_3_prompt,
+                    default_template_key,
+                    default_letter_template_id,
+                    has_completed_splash_screen,
+                    preferred_language,
+                    output_language,
+                    user_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    settings.get("name", ""),
+                    settings.get("specialty", ""),
+                    settings.get("quick_chat_1_title", "Review my plan"),
+                    settings.get("quick_chat_1_prompt", "Review my plan"),
+                    settings.get("quick_chat_2_title", "Additional points to review"),
+                    settings.get("quick_chat_2_prompt", "Additional points to review"),
+                    settings.get("quick_chat_3_title", "Other conditions worth reviewing"),
+                    settings.get("quick_chat_3_prompt", "Other conditions worth reviewing"),
+                    settings.get("default_template_key"),
+                    settings.get("default_letter_template_id"),
+                    bool(settings.get("has_completed_splash_screen", False)),
+                    settings.get("preferred_language", "en"),
+                    normalize_output_language(settings.get("output_language")),
+                    uid,
+                ),
+            )
+
+    def get_default_template_key(self) -> str | None:
+        """Return the current default template key, or None if unset."""
+        return self.get_user_settings().get("default_template_key")
+
+    def set_default_template_key(self, key: str) -> None:
+        """Set the default template key via the user_settings read-modify-write path."""
+        self.update_user_settings({"default_template_key": key})
+
+    def update_default_template_key(self, old: str, new: str) -> None:
+        """Bump the default template pointer from old to new (version-bump path).
+
+        Targeted WHERE so it only moves when the current value still matches old,
+        avoiding clobbering a concurrent user change.
+        """
+        self.refresh_db()
+        where, params = self._user_settings_where()
+        with self.db.transaction() as cursor:
+            cursor.execute(
+                f"UPDATE user_settings SET default_template_key = ? "
+                f"WHERE default_template_key = ? AND {where}",
+                (new, old, *params),
+            )
+
+    @staticmethod
+    def _read_user_settings(cursor) -> dict:
+        where, params = ConfigManager._user_settings_where()
+        cursor.execute(f"SELECT * FROM user_settings WHERE {where}", params)
+        result = cursor.fetchone()
+        if not result:
+            return {}
+        return dict(result)
 
 
 config_manager = ConfigManager()

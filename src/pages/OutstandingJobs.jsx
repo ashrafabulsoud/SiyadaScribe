@@ -1,46 +1,40 @@
 // Page component listing patients with outstanding jobs.
-import { useEffect, useState } from "react";
+import useSWR from "swr";
 import PatientTable from "../components/patient/PatientTable";
-import { buildApiUrl } from "../utils/helpers/apiConfig";
-import { universalFetch } from "../utils/helpers/apiHelpers";
+import { patientApi } from "../utils/api/patientApi";
+import { KEYS } from "../utils/cache/keys";
 
-const OutstandingJobs = ({ handleSelectPatient, refreshSidebar }) => {
-  const [patients, setPatients] = useState([]);
+const outstandingJobsFetcher = async (scope) => {
+    const data = await patientApi.fetchOutstandingJobs(scope);
+    return data.map((patient) => ({
+        ...patient,
+        activeSection: "summary",
+        jobs_list: JSON.parse(patient.jobs_list || "[]"),
+    }));
+};
 
-  const fetchPatientsWithJobs = async () => {
-    try {
-      const url = await buildApiUrl(`/api/note/outstanding-jobs`);
-      const response = await universalFetch(url);
-      if (!response.ok) {
-        throw new Error("Network response was not ok");
-      }
-      const data = await response.json();
-      setPatients(
-        data.map((patient) => ({
-          ...patient,
-          activeSection: "summary",
-          jobs_list: JSON.parse(patient.jobs_list || "[]"),
-        })),
-      );
-    } catch (error) {
-      console.error("Error fetching patients with jobs:", error);
-    }
-  };
+const OutstandingJobs = ({ handleSelectPatient, refreshSidebar, patientScope }) => {
+    const { data, mutate } = useSWR(
+        KEYS.outstandingJobs(patientScope),
+        () => outstandingJobsFetcher(patientScope),
+        {
+            revalidateOnMount: true,
+        },
+    );
+    const patients = data || [];
+    const setPatients = (updater) => mutate(updater, { revalidate: false });
 
-  useEffect(() => {
-    fetchPatientsWithJobs();
-  }, []);
-
-  return (
-    <PatientTable
-      patients={patients}
-      setPatients={setPatients}
-      handleSelectPatient={handleSelectPatient}
-      refreshSidebar={refreshSidebar}
-      title="Outstanding Jobs"
-      groupByDate={true}
-    />
-  );
+    return (
+        <PatientTable
+            patients={patients}
+            setPatients={setPatients}
+            handleSelectPatient={handleSelectPatient}
+            refreshSidebar={refreshSidebar}
+            title="Outstanding Jobs"
+            groupByDate={true}
+            summaryOnly={true}
+        />
+    );
 };
 
 export default OutstandingJobs;

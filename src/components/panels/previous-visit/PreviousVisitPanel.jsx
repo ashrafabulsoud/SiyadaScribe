@@ -1,30 +1,20 @@
 import { useState, useRef } from "react";
-import {
-  Box,
-  Flex,
-  Text,
-  Tabs,
-  TabList,
-  TabPanels,
-  TabPanel,
-  Tab,
-  HStack,
-  VStack,
-  Tooltip,
-} from "@chakra-ui/react";
+import { Box, Flex, Text, Tabs, HStack, VStack } from "@chakra-ui/react";
+import { Tooltip } from '@/components/ui/tooltip';
 import { FaClock, FaFileAlt, FaList } from "react-icons/fa";
 import FloatingPanel from "../../common/FloatingPanel";
+import { getTemplateFamilyBase } from "../../../utils/templates/templateService";
 
 const PreviousVisitPanel = ({
   isOpen,
-  onClose,
+  _onClose,
   previousVisitSummary,
   previousVisitTemplateData,
   previousVisitTemplateKey,
   previousVisitEncounterDate,
   templates = [],
 }) => {
-  const [tabIndex, setTabIndex] = useState(0);
+  const [tabIndex, setTabIndex] = useState("0");
   const [dimensions, setDimensions] = useState({ width: 550, height: 450 });
   const resizerRef = useRef(null);
 
@@ -54,12 +44,17 @@ const PreviousVisitPanel = ({
     window.removeEventListener("mouseup", handleMouseUp);
   };
 
-  // Look up the template for the previous visit
-  // First try exact match, then fall back to base template match (e.g., siyadascribe_01 -> siyadascribe_02)
+
+  const familyBase = previousVisitTemplateKey
+    ? getTemplateFamilyBase(previousVisitTemplateKey)
+    : "";
   const previousVisitTemplate = templates?.find(
     (t) => t.template_key === previousVisitTemplateKey
   ) || templates?.find(
-    (t) => t.template_key.startsWith(previousVisitTemplateKey?.split('_')[0] + '_')
+    (t) =>
+      familyBase &&
+      (t.template_key.startsWith(`${familyBase}_`) ||
+        t.template_key.startsWith(`custom_${familyBase}_`)),
   );
 
   // Render a single field from the previous visit note (read-only)
@@ -100,7 +95,7 @@ const PreviousVisitPanel = ({
         <Flex
           align="center"
           justify="space-between"
-          p="4"
+          p="3"
           className="panel-header"
           flexShrink={0}
         >
@@ -112,36 +107,36 @@ const PreviousVisitPanel = ({
 
         {/* Content with Tabs */}
         <Box flex="1" overflow="hidden" display="flex" flexDirection="column">
-          <Tabs
-            variant="enclosed"
-            index={tabIndex}
-            onChange={(index) => setTabIndex(index)}
+          <Tabs.Root
+            variant='enclosed'
+            value={tabIndex}
+            onValueChange={({ value }) => setTabIndex(value)}
             display="flex"
             flexDirection="column"
             height="100%"
           >
-            <TabList flexShrink={0}>
-              <Tooltip label="AI-generated summary of the previous visit">
-                <Tab className="tab-style">
+            <Tabs.List flexShrink={0}>
+              <Tooltip content="AI-generated summary of the previous visit">
+                <Tabs.Trigger className="tab-style" value="0">
                   <HStack>
                     <FaList />
                     <Text>Summary</Text>
                   </HStack>
-                </Tab>
+                </Tabs.Trigger>
               </Tooltip>
-              <Tooltip label="Full note content from the previous encounter">
-                <Tab className="tab-style">
+              <Tooltip content="Full note content from the previous encounter">
+                <Tabs.Trigger className="tab-style" value="1">
                   <HStack>
                     <FaFileAlt />
                     <Text>Full Note</Text>
                   </HStack>
-                </Tab>
+                </Tabs.Trigger>
               </Tooltip>
-            </TabList>
+            </Tabs.List>
 
-            <TabPanels flex="1" overflow="hidden" display="flex" width="100%">
+
               {/* Summary Tab */}
-              <TabPanel
+              <Tabs.Content value="0"
                 className="floating-main"
                 p={0}
                 width="100%"
@@ -160,15 +155,15 @@ const PreviousVisitPanel = ({
                       {previousVisitSummary}
                     </Text>
                   ) : (
-                    <Text color="gray.500" textAlign="center" py={4}>
+                    <Text color="overlay0" textAlign="center" py={4}>
                       No previous visit summary available.
                     </Text>
                   )}
                 </Box>
-              </TabPanel>
+              </Tabs.Content>
 
               {/* Full Note Tab */}
-              <TabPanel
+              <Tabs.Content value="1"
                 className="floating-main"
                 p={0}
                 width="100%"
@@ -183,11 +178,11 @@ const PreviousVisitPanel = ({
                   p={4}
                 >
                   {previousVisitTemplate && previousVisitTemplateData ? (
-                    <VStack spacing={4} align="stretch" width="100%">
+                    <VStack gap={4} align="stretch" width="100%">
                       {/* Encounter Date */}
                       {previousVisitEncounterDate && (
                         <Box p="2" width="100%">
-                          <Text fontSize="xs" color="gray.500" fontWeight="bold">
+                          <Text fontSize="xs" color="overlay0" fontWeight="bold">
                             ENCOUNTER DATE
                           </Text>
                           <Text fontSize="sm">{previousVisitEncounterDate}</Text>
@@ -195,19 +190,19 @@ const PreviousVisitPanel = ({
                       )}
 
                       {/* Template Fields */}
-                      <VStack spacing="0" align="stretch" width="100%">
+                      <VStack gap="0" align="stretch" width="100%">
                         {previousVisitTemplate.fields?.map(renderFieldReadOnly)}
                       </VStack>
                     </VStack>
                   ) : (
-                    <Text color="gray.500" textAlign="center" py={4}>
+                    <Text color="overlay0" textAlign="center" py={4}>
                       No previous visit note content available.
                     </Text>
                   )}
                 </Box>
-              </TabPanel>
-            </TabPanels>
-          </Tabs>
+              </Tabs.Content>
+
+          </Tabs.Root>
         </Box>
 
         {/* Resize Handle */}

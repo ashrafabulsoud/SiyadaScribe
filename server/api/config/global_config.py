@@ -3,29 +3,65 @@ import logging
 from fastapi import APIRouter, Body
 from fastapi.responses import JSONResponse
 
-from server.database.config.manager import config_manager
+from server.database.config.manager import CAPABILITY_PREFIX, config_manager
+from server.utils.current_user import require_admin
 
 router = APIRouter()
 
 
+SENSITIVE_KEYS = {"LLM_API_KEY", "WHISPER_KEY"}
+MASK_BULLET = "•"
+
+# Audit/compliance keys are operator-managed (DB/env) for now until ACLs
+PROTECTED_CONFIG_KEYS = {"AUDIT_RETENTION_DAYS"}
+
+
+def mask_key(key):
+    """Partially mask a secret for display: first 3 + bullets + last 4."""
+    if not key:
+        return key
+    if len(key) < 12:
+        return MASK_BULLET * len(key)
+    return key[:3] + MASK_BULLET * 4 + key[-4:]
+
+
 @router.get("/global")
-async def get_config():
+def get_config():
     """Retrieve the current global configuration."""
-    return JSONResponse(content=config_manager.get_config())
+    config = config_manager.get_config()
+    masked = dict(config)
+    for sensitive_key in SENSITIVE_KEYS:
+        if sensitive_key in masked:
+            masked[sensitive_key] = mask_key(masked[sensitive_key])
+    return JSONResponse(content=masked)
 
 
 @router.post("/global")
-async def update_config(data: dict = Body(...)):
-    """Update other configuration items with provided data."""
-    config_manager.update_config(data)
+def update_config(data: dict = Body(...)):
+    """Update other configuration items with provided data.
+
+    Admin only: these are server-wide settings (LLM/Whisper endpoints, keys).
+    Sensitive key fields containing mask bullets (•) are stripped to avoid
+    overwriting the stored secret with a masked display value.
+    """
+    require_admin()
+
+    filtered = {k: v for k, v in data.items() if not k.startswith(CAPABILITY_PREFIX)}
+    for sensitive_key in SENSITIVE_KEYS:
+        if sensitive_key in filtered and MASK_BULLET in str(filtered[sensitive_key]):
+            del filtered[sensitive_key]
+    for protected_key in PROTECTED_CONFIG_KEYS:
+        filtered.pop(protected_key, None)
+
+    config_manager.update_config(filtered)
 
     try:
-        from server.utils.rag.chroma import get_chroma_manager
+        from server.rag.vector_store import get_vector_store_manager
 
-        chroma_mgr = get_chroma_manager()
-        if chroma_mgr is not None:
-            chroma_mgr._reload_embedding_function()
+        vector_store_mgr = get_vector_store_manager()
+        if vector_store_mgr is not None:
+            vector_store_mgr._reload_embedding_function()
     except Exception:
-        logging.debug("ChromaDB reload skipped during config update")
+        logging.debug("Vector store reload skipped during config update")
 
     return {"message": "config.js updated successfully"}

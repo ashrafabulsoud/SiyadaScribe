@@ -1,4 +1,5 @@
-import { buildApiUrl, isTauri, getRequestToken } from "./apiConfig";
+import { isTauri, getRequestToken } from "./apiConfig";
+import { toaster } from "@/components/ui/toaster";
 
 export const universalFetch = async (url, options = {}) => {
   // Get the request token if in Tauri mode
@@ -55,10 +56,33 @@ export const handleApiRequest = async ({
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      let detail;
+      try {
+        const errorData = await response.json();
+        detail = errorData.detail || errorData.message;
+      } catch {
+        // Response had no JSON body; fall back to status text
+      }
+      const err = new Error(detail || `HTTP error! status: ${response.status}`);
+      err.status = response.status;
+      throw err;
     }
 
-    const data = await response.json();
+    // Tolerate empty/204 responses (some endpoints return no body)
+    if (response.status === 204) {
+      return null;
+    }
+    const contentLength = response.headers.get("content-length");
+    let data;
+    if (contentLength === "0") {
+      data = null;
+    } else {
+      try {
+        data = await response.json();
+      } catch {
+        data = null;
+      }
+    }
 
     // Apply transformation if provided
     const transformedData = transformResponse ? transformResponse(data) : data;
@@ -68,12 +92,11 @@ export const handleApiRequest = async ({
     }
 
     if (successMessage && toast) {
-      toast({
+      toaster.create({
         title: "Success",
         description: successMessage,
-        status: "success",
+        type: "success",
         duration: 3000,
-        isClosable: true,
       });
     }
 
@@ -95,12 +118,11 @@ export const handleApiRequest = async ({
       }
 
       if (toast) {
-        toast({
+        toaster.create({
           title: "Request Timeout",
           description: `The request took too long to complete (${timeout / 1000}s timeout)`,
-          status: "error",
+          type: "error",
           duration: 5000,
-          isClosable: true,
         });
       }
 
@@ -114,12 +136,11 @@ export const handleApiRequest = async ({
     }
 
     if (toast) {
-      toast({
+      toaster.create({
         title: "Error",
         description: errorMessage || error.message,
-        status: "error",
+        type: "error",
         duration: 5000,
-        isClosable: true,
       });
     }
 
@@ -128,54 +149,4 @@ export const handleApiRequest = async ({
     if (setLoading) setLoading(false);
     if (finallyCallback) finallyCallback();
   }
-};
-
-// Enhanced API request helper that handles URL construction
-export const handleApiRequestWithUrl = async (options) => {
-  const { endpoint, ...otherOptions } = options;
-
-  // Build the full URL
-  const fullUrl = await buildApiUrl(endpoint);
-
-  // Create the API call with the full URL
-  const apiCall = () => {
-    const { method = "GET", body, headers } = options;
-    const fetchOptions = {
-      method,
-      headers: headers || {},
-    };
-
-    if (body) {
-      fetchOptions.body = body;
-    }
-
-    return universalFetch(fullUrl, fetchOptions);
-  };
-
-  return handleApiRequest({
-    ...otherOptions,
-    apiCall,
-  });
-};
-
-// Utility function for handling form data
-export const createFormData = (data) => {
-  const formData = new FormData();
-  Object.entries(data).forEach(([key, value]) => {
-    if (value !== null && value !== undefined) {
-      formData.append(key, value);
-    }
-  });
-  return formData;
-};
-
-// Utility function for handling query parameters
-export const createQueryString = (params) => {
-  return Object.entries(params)
-    .filter(([_, value]) => value !== null && value !== undefined)
-    .map(
-      ([key, value]) =>
-        `${encodeURIComponent(key)}=${encodeURIComponent(value)}`,
-    )
-    .join("&");
 };

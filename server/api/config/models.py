@@ -6,22 +6,33 @@ from fastapi.responses import JSONResponse
 
 from server.constants import IS_DOCKER
 from server.database.config.manager import config_manager
-from server.utils.llm_client.manager import LocalModelManager
+from server.llm_client.client import resolve_effective_api_key
+from server.utils.current_user import require_admin
+from server.utils.llama_models import llama_model_manager
 from server.utils.url_utils import build_openai_v1_url, build_whisper_v1_url
 
 router = APIRouter()
 
 
 @router.get("/options")
-async def get_options():
+def get_options():
     """Retrieve all options configuration."""
     prompts_and_options = config_manager.get_prompts_and_options()
     return JSONResponse(content=prompts_and_options["options"])
 
 
+@router.post("/options/reset-to-defaults")
+def reset_options_to_defaults():
+    """Reset all model configuration options to their default values. Admin only."""
+    require_admin()
+    config_manager.reset_options_to_defaults()
+    return {"message": "Options reset to defaults successfully"}
+
+
 @router.post("/options/{category}")
-async def update_options(category: str, data: dict = Body(...)):
-    """Update options for a specific category."""
+def update_options(category: str, data: dict = Body(...)):
+    """Update options for a specific category. Admin only."""
+    require_admin()
     config_manager.update_options(category, data)
     return {"message": f"{category} options updated successfully"}
 
@@ -35,6 +46,7 @@ async def get_llm_models(
     ),
 ):
     """Fetch available models from the configured LLM provider."""
+    require_admin()
     try:
         if provider.lower() == "local":
             # For local models, return downloaded models
@@ -45,8 +57,7 @@ async def get_llm_models(
                 }
 
             try:
-                model_manager = LocalModelManager()
-                models = await model_manager.list_models()
+                models = llama_model_manager.get_downloaded_models()
                 return {"models": [model["name"] for model in models]}
             except Exception as e:
                 logging.error(f"Error fetching local models: {e}")
@@ -59,7 +70,9 @@ async def get_llm_models(
                     detail="baseUrl is required for OpenAI-compatible providers",
                 )
 
-            headers = {"Authorization": f"Bearer {apiKey}"} if apiKey else {}
+            effective_key = resolve_effective_api_key(baseUrl, apiKey)
+
+            headers = {"Authorization": f"Bearer {effective_key}"} if effective_key else {}
 
             async with httpx.AsyncClient(headers=headers) as client:
                 url = build_openai_v1_url(baseUrl, "models")
@@ -123,6 +136,10 @@ async def get_llm_models(
                 detail="Unsupported provider type. Must be 'openai' or 'local'",
             )
 
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logging.error(f"Error fetching LLM models: {e}")
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
@@ -138,6 +155,7 @@ async def get_whisper_models(
     Only works if the instance exposes a compatible /v1/models endpoint
     (e.g. Speaches); otherwise returns an empty list.
     """
+    require_admin()
     try:
         # First try to fetch models from the endpoint
         async with httpx.AsyncClient() as client:
@@ -176,10 +194,3 @@ async def get_whisper_models(
     except Exception as e:
         logging.error(f"Error in get_whisper_models: {e}")
         raise HTTPException(status_code=500, detail="Internal Server Error") from e
-
-
-@router.post("/reset-to-defaults")
-async def reset_to_defaults():
-    """Reset configuration settings to their default values."""
-    config_manager.reset_to_defaults()
-    return {"message": "All configurations reset to defaults"}

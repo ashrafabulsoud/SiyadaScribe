@@ -3,9 +3,13 @@ import logging
 from fastapi import APIRouter, Body, HTTPException
 from fastapi.responses import JSONResponse
 
-from server.database.entities.templates import (
+from server.constants import is_protected_template_key as _is_protected
+from server.database.config.manager import config_manager
+from server.database.repositories.templates import (
     get_all_templates,
+    get_base_key,
     get_default_template,
+    get_fork_base,
     get_template_by_key,
     save_template,
     set_default_template,
@@ -13,25 +17,25 @@ from server.database.entities.templates import (
     template_exists,
     update_template,
 )
+from server.nlp_tools.templates import generate_template_from_note
 from server.schemas.templates import ClinicalTemplate
-from server.utils.nlp_tools.templates import generate_template_from_note
 
 router = APIRouter()
 
 
 @router.post("/default/{template_key}")
-async def set_default_template_endpoint(template_key: str):
+def set_default_template_endpoint(template_key: str):
     """Set the default template."""
     try:
         set_default_template(template_key)
         return JSONResponse(content={"message": f"Set {template_key} as default template"})
     except Exception as e:
         logging.error(f"Error setting default template: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.get("/default")
-async def get_default_template_endpoint():
+def get_default_template_endpoint():
     """Get the default template key."""
     try:
         template = get_default_template()
@@ -42,46 +46,60 @@ async def get_default_template_endpoint():
         raise he
     except Exception as e:
         logging.error(f"Error getting default template: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.get("/{template_key}")
-async def get_template(template_key: str):
+def get_template(template_key: str):
     """Get a specific template by its key."""
     try:
         template = get_template_by_key(template_key)
         if template is None:
             raise HTTPException(status_code=404, detail="Template not found")
         return JSONResponse(content=template)
+    except HTTPException:
+        raise
     except Exception as e:
         logging.error(f"Error fetching template: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.delete("/{template_key}")
-async def delete_template(template_key: str):
+def delete_template(template_key: str):
     """Delete a template if it's not a default template."""
     try:
-        if template_key.startswith(("siyadascribe_", "soap_", "progress_")):
+        if _is_protected(template_key):
             raise HTTPException(status_code=403, detail="Cannot delete default templates")
 
         success = soft_delete_template(template_key)
         if success:
+            try:
+                fork_base = get_fork_base(template_key)
+                if (
+                    fork_base is not None
+                    and config_manager.get_default_template_key() == template_key
+                ):
+                    set_default_template(f"{fork_base}_01")
+            except Exception as e:  # pragma: no cover - never block the delete
+                logging.warning(f"Default repoint after fork delete failed: {e}")
             return JSONResponse(content={"message": f"Template {template_key} deleted"})
         raise HTTPException(status_code=404, detail="Template not found")
     except HTTPException as he:
         raise he
     except Exception as e:
         logging.error(f"Error deleting template: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.post("/{template_key}/fields/{field_key}/adaptive-instructions/reset")
-async def reset_adaptive_instructions(template_key: str, field_key: str):
+def reset_adaptive_instructions(template_key: str, field_key: str):
     """
     Reset (clear) the adaptive refinement instructions for a given field in a template.
     """
-    from server.database.entities.templates import (
+    if _is_protected(template_key):
+        raise HTTPException(status_code=403, detail="Cannot modify default templates")
+
+    from server.database.repositories.templates import (
         update_field_adaptive_instructions,
     )
 
@@ -105,11 +123,14 @@ async def consolidate_adaptive_instructions_endpoint(template_key: str, field_ke
     Consolidate the adaptive refinement instructions for a given field in a template.
     This resolves contradictions, merges redundancy, and simplifies complex instructions.
     """
-    from server.database.entities.templates import (
+    if _is_protected(template_key):
+        raise HTTPException(status_code=403, detail="Cannot modify default templates")
+
+    from server.database.repositories.templates import (
         get_template_by_key,
         update_field_adaptive_instructions,
     )
-    from server.utils.nlp_tools.adaptive_refinement import (
+    from server.nlp_tools.adaptive_refinement import (
         consolidate_adaptive_instructions,
     )
 
@@ -177,7 +198,7 @@ async def consolidate_adaptive_instructions_endpoint(template_key: str, field_ke
 
 
 @router.get("")
-async def get_templates():
+def get_templates():
     """Get all available templates."""
     try:
         templates = get_all_templates()
@@ -185,11 +206,11 @@ async def get_templates():
         return JSONResponse(content=templates_list)
     except Exception as e:
         logging.error(f"Error fetching templates: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.post("")
-async def save_templates(
+def save_templates(
     templates: list[dict] = Body(..., description="List of templates to save"),
 ):
     """Save or update multiple templates."""
@@ -199,17 +220,26 @@ async def save_templates(
         updated_keys = {}
 
         for template in template_objects:
+            original_key = template.template_key
+            if _is_protected(original_key):
+                template.template_key = f"custom_{get_base_key(original_key)}_1"
             if template_exists(template.template_key):
                 new_key = update_template(template)
                 if new_key == template.template_key:
                     results.append(f"No changes detected for template: {template.template_name}")
                 else:
                     results.append(f"Updated template: {template.template_name}")
-                updated_keys[template.template_key] = new_key
+                updated_keys[original_key] = new_key
             else:
                 save_template(template)
-                results.append(f"Created template: {template.template_name}")
-                updated_keys[template.template_key] = template.template_key
+                if original_key != template.template_key:
+                    config_manager.update_default_template_key(original_key, template.template_key)
+                    results.append(
+                        f"Forked default template: {template.template_name} → {template.template_key}"
+                    )
+                else:
+                    results.append(f"Created template: {template.template_name}")
+                updated_keys[original_key] = template.template_key
 
         return JSONResponse(
             content={
@@ -218,9 +248,11 @@ async def save_templates(
                 "updated_keys": updated_keys,
             }
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logging.error(f"Error saving templates: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.post("/generate")
@@ -236,4 +268,4 @@ async def generate_template(request_body: dict):
         return JSONResponse(content=generated_template.model_dump())
     except Exception as e:
         logging.error(f"Error generating template from example: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e

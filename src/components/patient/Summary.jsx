@@ -5,28 +5,18 @@ import React, {
   useImperativeHandle,
 } from "react";
 import TextareaAutosize from "react-textarea-autosize";
-import {
-  Box,
-  Flex,
-  Text,
-  Collapse,
-  HStack,
-  Select,
-  VStack,
-  Tooltip,
-  Center,
-  Spinner,
-  useToast,
-} from "@chakra-ui/react";
+import { Box, Flex, Text, Collapsible, HStack, NativeSelect, VStack, Center, Spinner } from "@chakra-ui/react";
+import { toaster } from "@/components/ui/toaster";
+import { Tooltip } from '@/components/ui/tooltip';
 import {
   EditIcon,
   CopyIcon,
   CheckIcon,
-  AttachmentIcon,
-} from "@chakra-ui/icons";
-import { FaSave, FaFileAlt, FaThumbtack } from "react-icons/fa";
+} from "../common/icons";
+import { FaSave, FaFileAlt, FaThumbtack, FaCheckDouble } from "react-icons/fa";
 import { GreenButton, GreyButton } from "../common/Buttons";
 import { useTemplateSelection } from "../../utils/templates/templateContext";
+import { getTemplateFamilyBase } from "../../utils/templates/templateService";
 import { patientApi } from "../../utils/api/patientApi";
 import ConfirmLeaveModal from "../modals/ConfirmLeaveModal";
 
@@ -34,13 +24,13 @@ const Summary = forwardRef(
   (
     {
       isSummaryCollapsed,
-      toggleSummaryCollapse,
       patient,
       setPatient,
       handleGenerateLetterClick,
       handleSavePatientData,
-      setParentIsModified,
       saveLoading,
+      onWrapUp,
+      wrapUpLoading,
       setIsModified,
       onCopy,
       recentlyCopied,
@@ -61,18 +51,16 @@ const Summary = forwardRef(
     const [isTemplateChangeModalOpen, setIsTemplateChangeModalOpen] =
       useState(false);
     const [pendingTemplateKey, setPendingTemplateKey] = useState(null);
-    const toast = useToast();
 
     const handleTemplateChange = async (e) => {
       const newTemplateKey = e.target.value;
 
       if (!isNewPatient && !isSearchedPatient) {
-        toast({
+        toaster.create({
           title: "Template Locked",
           description: "Template cannot be changed for historical encounters",
-          status: "warning",
+          type: "warning",
           duration: 3000,
-          isClosable: true,
         });
         return;
       }
@@ -90,8 +78,8 @@ const Summary = forwardRef(
       // If patient has a UR number, fetch persistent fields for the new template type
       if (patient?.ur_number) {
         try {
-          // Extract base template key (e.g., "soap" from "soap_01")
-          const baseTemplateKey = pendingTemplateKey.split("_")[0];
+
+          const baseTemplateKey = getTemplateFamilyBase(pendingTemplateKey);
           console.log("Fetching history for template:", baseTemplateKey);
 
           const history = await patientApi.fetchPatientHistoryByTemplate(
@@ -138,12 +126,13 @@ const Summary = forwardRef(
     };
 
     const renderField = (field) => {
-      const hasContent = patient.template_data?.[field.field_key]?.trim();
       const persistentMarker = field.persistent ? (
         <Tooltip
-          label="Persists between encounters."
-          hasArrow
-          placement="right"
+          content="Persists between encounters."
+          showArrow
+          positioning={{
+            placement: "right"
+          }}
         >
           <Box as="span" className="cohesive-persistent-marker">
             <FaThumbtack />
@@ -185,7 +174,7 @@ const Summary = forwardRef(
       return (
         <Box p="4" borderRadius="sm" className="panels-bg">
           <Center mt={4}>
-            <Spinner size="sm" speed="0.65s" />
+            <Spinner size="sm" animationDuration="0.65s" />
             <Text ml={2}>Loading template...</Text>
           </Center>
         </Box>
@@ -197,13 +186,13 @@ const Summary = forwardRef(
         <Box p={[2, 3, 4]} borderRadius="sm" className="panels-bg">
           <Flex align="center" justify="space-between">
             <Flex align="center">
-              <HStack spacing={2}>
+              <HStack gap={2}>
                 <EditIcon size="1.2em" />
                 <Text as="h3">Note</Text>
               </HStack>
             </Flex>
             <Tooltip
-              label={
+              content={
                 isNewPatient
                   ? "Select Template"
                   : "Template cannot be changed for historical encounters"
@@ -216,91 +205,134 @@ const Summary = forwardRef(
                     style={{ marginRight: "8px" }}
                     className="pill-box-icons"
                   />
-                  <Select
-                    placeholder="Select Template"
-                    value={
-                      currentTemplate?.template_key ||
-                      patient?.template_key ||
-                      ""
-                    }
-                    onChange={handleTemplateChange}
-                    size="sm"
-                    width={["100px", "150px", "200px"]}
-                    className="input-style"
-                    isDisabled={!isNewPatient}
-                  >
-                    {/* Show "Historical Template" only for viewing historical encounters */}
-                    {!isNewPatient &&
-                      !isSearchedPatient &&
-                      patient?.template_key &&
-                      !templates?.some(
-                        (t) => t.template_key === patient.template_key,
-                      ) && (
-                        <option value={patient.template_key}>
-                          Historical Template
+                  <NativeSelect.Root>
+                    <NativeSelect.Field
+                      placeholder="Select Template"
+                      value={
+                        currentTemplate?.template_key ||
+                        patient?.template_key ||
+                        ""
+                      }
+                      onChange={handleTemplateChange}
+                      size="sm"
+                      width={["100px", "150px", "200px"]}
+                      className="input-style"
+                      disabled={!isNewPatient}>
+                      {/* Show "Historical Template" only for viewing historical encounters */}
+                      {!isNewPatient &&
+                        !isSearchedPatient &&
+                        patient?.template_key &&
+                        !templates?.some(
+                          (t) => t.template_key === patient.template_key,
+                        ) && (
+                          <option value={patient.template_key}>
+                            Historical Template
+                          </option>
+                        )}
+                      {templates?.map((t) => (
+                        <option key={t.template_key} value={t.template_key}>
+                          {t.template_name}
                         </option>
-                      )}
-
-                    {templates?.map((t) => (
-                      <option key={t.template_key} value={t.template_key}>
-                        {t.template_name}
-                      </option>
-                    ))}
-                  </Select>
+                      ))}
+                    </NativeSelect.Field>
+                    <NativeSelect.Indicator />
+                  </NativeSelect.Root>
                 </Flex>
               </Box>
             </Tooltip>
           </Flex>
 
-          <Collapse in={!isSummaryCollapsed} animateOpacity>
-            <Box mt="4" className="cohesive-fields-container">
-              <VStack spacing="0" align="stretch">
-                {currentTemplate?.fields?.map(renderField)}
-              </VStack>
-            </Box>
-            <Flex mt="4" justifyContent="space-between">
-              <Flex>
-                <Tooltip
-                  label={
-                    isEncounterSaved
-                      ? ""
-                      : "Save the encounter first to generate a letter"
-                  }
-                  placement="top"
-                >
-                  <Box>
-                    <GreyButton
-                      onClick={() => handleGenerateLetterClick(null)}
-                      leftIcon={<EditIcon />}
-                      mr="2"
-                      isDisabled={saveLoading || !isEncounterSaved}
-                    >
-                      Generate Letter
-                    </GreyButton>
-                  </Box>
-                </Tooltip>
+          <Collapsible.Root open={!isSummaryCollapsed}>
+            <Collapsible.Content>
+              <Box mt="4" className="cohesive-fields-container">
+                <VStack gap="0" align="stretch">
+                  {currentTemplate?.fields?.map(renderField)}
+                </VStack>
+              </Box>
+              <Flex mt="4" justifyContent="space-between">
+                <Flex>
+                  <Tooltip
+                    content={
+                      isEncounterSaved
+                        ? "Generate a letter from this note"
+                        : "Save the encounter first to generate a letter"
+                    }
+                    positioning={{
+                      placement: "top"
+                    }}
+                  >
+                    <Box>
+                      <GreyButton
+                        onClick={() => handleGenerateLetterClick(null)}
+                        leftIcon={<EditIcon />}
+                        mr="2"
+                        disabled={saveLoading || !isEncounterSaved}
+                      >
+                        Generate Letter
+                      </GreyButton>
+                    </Box>
+                  </Tooltip>
+                </Flex>
+                <Flex>
+                  <Tooltip
+                    content="Copy the full note to your clipboard"
+                    positioning={{
+                      placement: "top"
+                    }}
+                  >
+                    <Box>
+                      <GreyButton
+                        onClick={onCopy}
+                        width="190px"
+                        leftIcon={recentlyCopied ? <CheckIcon /> : <CopyIcon />}
+                        mr="2"
+                      >
+                        {recentlyCopied ? "Copied!" : "Copy to Clipboard"}
+                      </GreyButton>
+                    </Box>
+                  </Tooltip>
+                  <Tooltip
+                    content="Save the current encounter"
+                    positioning={{
+                      placement: "top"
+                    }}
+                  >
+                    <Box>
+                      <GreyButton
+                        onClick={handleSavePatientData}
+                        loading={saveLoading}
+                        loadingText="Saving"
+                        width="190px"
+                        leftIcon={saveLoading ? null : <FaSave />}
+                      >
+                        {saveLoading ? "Saving..." : "Save Encounter"}
+                      </GreyButton>
+                    </Box>
+                  </Tooltip>
+                  <Tooltip
+                    content="Review AI-extracted jobs, then finish and move to a new note"
+                    positioning={{
+                      placement: "top"
+                    }}
+                  >
+                    <Box>
+                      <GreenButton
+                        onClick={onWrapUp}
+                        loading={wrapUpLoading}
+                        loadingText="Wrapping"
+                        width="150px"
+                        ml="2"
+                        leftIcon={wrapUpLoading ? null : <FaCheckDouble />}
+                        disabled={saveLoading}
+                      >
+                        {wrapUpLoading ? "Wrapping..." : "Wrap Up"}
+                      </GreenButton>
+                    </Box>
+                  </Tooltip>
+                </Flex>
               </Flex>
-              <Flex>
-                <GreyButton
-                  onClick={onCopy}
-                  width="190px"
-                  leftIcon={recentlyCopied ? <CheckIcon /> : <CopyIcon />}
-                  mr="2"
-                >
-                  {recentlyCopied ? "Copied!" : "Copy to Clipboard"}
-                </GreyButton>
-                <GreenButton
-                  onClick={handleSavePatientData}
-                  isLoading={saveLoading}
-                  loadingText="Saving"
-                  width="190px"
-                  leftIcon={saveLoading ? null : <FaSave />}
-                >
-                  {saveLoading ? "Saving..." : "Save Encounter"}
-                </GreenButton>
-              </Flex>
-            </Flex>
-          </Collapse>
+            </Collapsible.Content>
+          </Collapsible.Root>
         </Box>
         <ConfirmLeaveModal
           isOpen={isTemplateChangeModalOpen}

@@ -17,7 +17,7 @@ client = TestClient(app)
 def test_generate_letter(monkeypatch):
     # generate_letter_content is async, so the mock must be async too
     async def fake_generate_letter_content(*_args, **_kwargs):
-        return "This is a generated letter."
+        return {"letter": "This is a generated letter.", "context": []}
 
     monkeypatch.setattr("server.api.letter.generate_letter_content", fake_generate_letter_content)
     payload = {
@@ -32,13 +32,14 @@ def test_generate_letter(monkeypatch):
     assert response.status_code == 200
     data = response.json()
     assert "letter" in data
+    assert "context" in data
     assert "generated letter" in data["letter"]
 
 
 @pytest.mark.asyncio
 async def test_save_letter(monkeypatch):
     async def fake_generate_letter_content(*_args, **_kwargs):
-        return "This is a generated letter."
+        return {"letter": "This is a generated letter.", "context": []}
 
     monkeypatch.setattr("server.api.letter.generate_letter_content", fake_generate_letter_content)
     payload = {"noteId": 123, "letter": "This is a saved letter."}
@@ -50,7 +51,7 @@ async def test_save_letter(monkeypatch):
 
 
 def test_fetch_letter(monkeypatch):
-    async def fake_fetch_patient_letter(_noteId):
+    def fake_fetch_patient_letter(_noteId):
         return "Fetched letter content."
 
     monkeypatch.setattr("server.api.letter.fetch_patient_letter", fake_fetch_patient_letter)
@@ -102,3 +103,15 @@ def test_delete_template(monkeypatch):
     assert response.status_code == 200
     data = response.json()
     assert "deleted" in data.get("message", "").lower()
+
+
+@pytest.mark.usefixtures("clinician_ctx")
+def test_template_reset_requires_admin():
+    """Resetting letter templates wipes every user's templates: admin only."""
+    from fastapi import HTTPException
+
+    from server.api.letter import reset_templates
+
+    with pytest.raises(HTTPException) as exc:
+        reset_templates()
+    assert exc.value.status_code == 403

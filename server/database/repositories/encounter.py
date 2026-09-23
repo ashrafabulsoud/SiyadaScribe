@@ -1,0 +1,635 @@
+import json
+import logging
+from datetime import datetime
+from typing import Any
+
+from server.database.core.connection import get_db
+from server.database.repositories.jobs import (
+    are_all_jobs_completed,
+    generate_jobs_list_from_plan,
+)
+from server.database.repositories.patient import (
+    _upsert_profile_with_cursor,
+    get_patient_profile,
+)
+from server.database.repositories.templates import (
+    get_persistent_fields,
+    get_template_by_key,
+    get_template_family_patterns,
+)
+from server.schemas.patient import Patient
+from server.utils.current_user import current_user_id, scoped
+from server.utils.helpers import format_name, split_name
+
+
+def _attach_profile_demographics(row: dict[str, Any]) -> dict[str, Any]:
+    """Merge profile-sourced demographics into an encounter row and set the derived 'name'."""
+    profile = get_patient_profile(row.get("ur_number"))
+    if profile:
+        row["first_name"] = profile.get("first_name")
+        row["last_name"] = profile.get("last_name")
+        row["dob"] = profile.get("dob")
+        row["gender"] = profile.get("gender")
+        row["address"] = profile.get("address")
+        row["phone"] = profile.get("phone")
+    else:
+        first, last = split_name(row.get("name"))
+        row["first_name"] = row.get("first_name") or first
+        row["last_name"] = row.get("last_name") or last
+    row["name"] = format_name(row.get("first_name"), row.get("last_name"))
+    return row
+
+
+def save_patient(patient: Patient) -> int:
+    """Saves patient data."""
+    try:
+        now = datetime.now().isoformat()
+
+        # Generate jobs list from plan if one exists
+        jobs_list = []
+        if hasattr(patient, "template_data") and patient.template_data:
+            template_data = (
+                json.loads(patient.template_data)
+                if isinstance(patient.template_data, str)
+                else patient.template_data
+            )
+            if plan := template_data.get("plan") if isinstance(template_data, dict) else None:
+                jobs_list = generate_jobs_list_from_plan(plan)
+
+        # Check if all jobs are completed
+        all_jobs_completed = are_all_jobs_completed(jobs_list)
+
+        # Ensure jobs_list is properly serialized as JSON string
+        jobs_list_json = (
+            json.dumps(jobs_list)
+            if isinstance(jobs_list, (list, dict))
+            else jobs_list
+            if isinstance(jobs_list, str)
+            else "[]"
+        )
+
+        with get_db().transaction() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO encounters (
+                    ur_number, encounter_date,
+                    template_key, template_data, raw_transcription,
+                    transcription_duration, process_duration,
+                    primary_condition, final_letter, jobs_list,
+                    all_jobs_completed, encounter_summary,
+                    created_at, updated_at, created_by
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    patient.ur_number,
+                    patient.encounter_date,
+                    patient.template_key,
+                    json.dumps(patient.template_data),
+                    patient.raw_transcription,
+                    patient.transcription_duration,
+                    patient.process_duration,
+                    getattr(patient, "primary_condition", None),
+                    getattr(patient, "final_letter", None),
+                    jobs_list_json,  # Use generated jobs list instead of getting from patient
+                    all_jobs_completed,
+                    getattr(patient, "encounter_summary", None),
+                    now,
+                    now,
+                    current_user_id(),
+                ),
+            )
+            # Capture ID from this cursor immediately, before any nested write.
+            encounter_id = cursor.lastrowid
+
+            # patient_profiles is the source of truth for demographics.
+            if patient.ur_number:
+                _upsert_profile_with_cursor(
+                    cursor,
+                    {
+                        "ur_number": patient.ur_number,
+                        "first_name": patient.first_name,
+                        "last_name": patient.last_name,
+                        "dob": patient.dob,
+                        "gender": patient.gender,
+                        "address": patient.address,
+                        "phone": patient.phone,
+                    },
+                )
+
+        return encounter_id
+    except Exception as e:
+        logging.error(f"Error saving patient: {e}")
+        raise
+
+
+def update_patient(patient: Patient) -> None:
+    """
+    Update an existing patient in the database.
+
+    Args:
+        patient (Patient): The patient object with updated information.
+    """
+    try:
+        with get_db().transaction() as cursor:
+            # First get existing patient data
+            cursor.execute(
+                "SELECT template_data, jobs_list FROM encounters WHERE id = ?",
+                (patient.id,),
+            )
+            row = cursor.fetchone()
+
+            # Extract plans for comparison
+            current_template_data = {}
+            if row:
+                # Convert row to dict if it's not already
+                row_dict = dict(row) if row else {}
+
+                if row_dict.get("template_data"):
+                    try:
+                        current_template_data = (
+                            json.loads(row_dict["template_data"])
+                            if isinstance(row_dict["template_data"], str)
+                            else row_dict["template_data"]
+                        )
+                    except json.JSONDecodeError:
+                        current_template_data = {}
+
+            new_template_data = {}
+            if patient.template_data:
+                try:
+                    new_template_data = (
+                        json.loads(patient.template_data)
+                        if isinstance(patient.template_data, str)
+                        else patient.template_data
+                    )
+
+                except json.JSONDecodeError:
+                    new_template_data = {}
+
+            # Compare plans
+            current_plan = current_template_data.get("plan", "").strip()
+            new_plan = new_template_data.get("plan", "").strip()
+
+            # Handle jobs list updates
+            if current_plan != new_plan:
+                # Plan changed, generate new jobs list
+
+                jobs_list = generate_jobs_list_from_plan(new_plan)
+            else:
+                # Plan unchanged, handle existing jobs list
+                jobs_list = []
+                if row:
+                    row_dict = dict(row)
+                    if row_dict.get("jobs_list"):
+                        try:
+                            jobs_list = (
+                                json.loads(row_dict["jobs_list"])
+                                if isinstance(row_dict["jobs_list"], str)
+                                else row_dict["jobs_list"]
+                            )
+                        except json.JSONDecodeError:
+                            jobs_list = []
+
+                # If no jobs list exists but we have patient jobs list data
+                if not jobs_list and hasattr(patient, "jobs_list"):
+                    try:
+                        jobs_list = (
+                            json.loads(patient.jobs_list)
+                            if isinstance(patient.jobs_list, str)
+                            else patient.jobs_list
+                        )
+                    except (json.JSONDecodeError, AttributeError):
+                        jobs_list = []
+
+                # If still no jobs list but we have a plan, generate from plan
+                if not jobs_list and new_plan:
+                    jobs_list = generate_jobs_list_from_plan(new_plan)
+
+            # Check if all jobs are completed
+            all_jobs_completed = are_all_jobs_completed(jobs_list)
+
+            # Ensure template_data is properly serialized
+            template_data_json = (
+                json.dumps(patient.template_data)
+                if isinstance(patient.template_data, dict)
+                else patient.template_data
+            )
+
+            # Ensure jobs_list is properly serialized as JSON string
+            jobs_list_json = (
+                json.dumps(jobs_list)
+                if isinstance(jobs_list, (list, dict))
+                else jobs_list
+                if isinstance(jobs_list, str)
+                else "[]"
+            )
+
+            # Update the database
+            scope_sql, scope_params = scoped("created_by")
+            cursor.execute(
+                f"""
+                UPDATE encounters
+                SET ur_number = ?,
+                    encounter_date = ?,
+                    template_key = ?,
+                    template_data = ?,
+                    raw_transcription = ?,
+                    transcription_duration = ?,
+                    process_duration = ?,
+                    primary_condition = ?,
+                    final_letter = ?,
+                    encounter_summary = ?,
+                    jobs_list = ?,
+                    all_jobs_completed = ?,
+                    updated_at = ?
+                WHERE id = ?{scope_sql}
+                """,
+                (
+                    patient.ur_number,
+                    patient.encounter_date,
+                    patient.template_key,
+                    template_data_json,
+                    patient.raw_transcription,
+                    patient.transcription_duration,
+                    patient.process_duration,
+                    patient.primary_condition,
+                    patient.final_letter,
+                    patient.encounter_summary,
+                    jobs_list_json,
+                    all_jobs_completed,
+                    datetime.now().isoformat(),
+                    patient.id,
+                    *scope_params,
+                ),
+            )
+
+            # Keep the source-of-truth profile in sync with the edited demographics.
+            if patient.ur_number:
+                _upsert_profile_with_cursor(
+                    cursor,
+                    {
+                        "ur_number": patient.ur_number,
+                        "first_name": patient.first_name,
+                        "last_name": patient.last_name,
+                        "dob": patient.dob,
+                        "gender": patient.gender,
+                        "address": patient.address,
+                        "phone": patient.phone,
+                    },
+                )
+    except Exception as e:
+        logging.error(f"Error updating patient: {e}")
+        raise
+
+
+def update_patient_reasoning(note_id: int, reasoning_output: dict) -> None:
+    """
+    Update the reasoning_output field for the specified patient.
+
+    Args:
+        note_id (int): The ID of the patient.
+        reasoning_output (dict): The reasoning output data.
+    """
+    try:
+        reasoning_output_json = json.dumps(reasoning_output)
+        scope_sql, scope_params = scoped("created_by")
+        with get_db().transaction() as cursor:
+            cursor.execute(
+                f"UPDATE encounters SET reasoning_output = ? WHERE id = ?{scope_sql}",
+                (reasoning_output_json, note_id, *scope_params),
+            )
+    except Exception as e:
+        logging.error(f"Error updating patient reasoning: {e}")
+        raise
+
+
+def get_patients_by_date(
+    date: str, template_key: str | None = None, include_data: bool = False
+) -> list[dict[str, Any]]:
+    """
+    Retrieve patients with encounters on a specific date.
+
+    Args:
+        date (str): The encounter date.
+        template_key (Optional[str]): Filter by template.
+        include_data (bool): Whether to include template data and jobs information.
+
+    Returns:
+        List[Dict[str, Any]]: List of matching patient records.
+    """
+    try:
+        query = """
+            SELECT e.id, e.ur_number, e.encounter_date, e.template_key,
+                   p.first_name, p.last_name, p.dob, p.gender, p.address, p.phone
+            """
+
+        # Add additional fields if detailed information is requested
+        if include_data:
+            query += ", e.template_data, e.jobs_list, e.encounter_summary, e.reasoning_output"
+
+        query += """
+            FROM encounters e
+            LEFT JOIN patient_profiles p ON p.ur_number = e.ur_number
+            WHERE e.encounter_date = ?
+            """
+        params = [date]
+
+        if template_key:
+            query += " AND e.template_key = ?"
+            params.append(template_key)
+
+        scope_sql, scope_params = scoped("e.created_by")
+        query += scope_sql
+        params += scope_params
+
+        query += " ORDER BY p.last_name, p.first_name"
+
+        with get_db().read() as cursor:
+            cursor.execute(query, params)
+            patients = []
+            for row in cursor.fetchall():
+                patient = dict(row)
+
+                # Derive the display name the API/frontend expect ('Last, First')
+                patient["name"] = format_name(patient.get("first_name"), patient.get("last_name"))
+
+                # Process template data if included
+                if include_data:
+                    if patient.get("template_data"):
+                        try:
+                            template_data = json.loads(patient["template_data"])
+                            patient["template_data"] = template_data
+                            # Extract plan from template data if exists
+                            if template_data:
+                                patient["plan"] = template_data.get("plan", "")
+                        except json.JSONDecodeError:
+                            patient["template_data"] = {}
+
+                    # Process jobs list if included
+                    if patient.get("jobs_list"):
+                        try:
+                            patient["jobs_list"] = json.loads(patient["jobs_list"])
+                        except json.JSONDecodeError:
+                            patient["jobs_list"] = []
+
+                    # Process reasoning output if present
+                    if patient.get("reasoning_output"):
+                        try:
+                            patient["reasoning_output"] = json.loads(patient["reasoning_output"])
+                        except json.JSONDecodeError:
+                            patient["reasoning_output"] = None
+
+                patients.append(patient)
+            return patients
+    except Exception as e:
+        logging.error(f"Error fetching patients by date: {e}")
+        raise
+
+
+def get_patient_by_id(note_id: int) -> dict[str, Any] | None:
+    """
+    Retrieve a patient by ID.
+
+    Args:
+        note_id (int): The patient's ID.
+
+    Returns:
+        Optional[Dict[str, Any]]: Patient data if found.
+    """
+    try:
+        scope_sql, scope_params = scoped("created_by")
+        with get_db().read() as cursor:
+            cursor.execute(
+                f"SELECT * FROM encounters WHERE id = ?{scope_sql}",
+                (note_id, *scope_params),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            patient = dict(row)
+
+        if patient["template_data"]:
+            patient["template_data"] = json.loads(patient["template_data"])
+
+        if patient.get("reasoning_output"):
+            try:
+                patient["reasoning_output"] = json.loads(patient["reasoning_output"])
+            except json.JSONDecodeError:
+                patient["reasoning_output"] = None
+
+        _attach_profile_demographics(patient)
+        return patient
+    except Exception as e:
+        logging.error(f"Error fetching patient by ID: {e}")
+        raise
+
+
+def get_patient_history(ur_number: str, template_key: str | None = None) -> list[dict[str, Any]]:
+    """
+    Get a patient's historical encounters with persistent fields.
+
+    Args:
+        ur_number (str): The patient's UR number.
+        template_key (str, optional): Filter by template type (e.g., "soap", "siyadascribe").
+            Uses prefix matching to handle template versions like "soap_01", "soap_02".
+
+    Returns:
+        List[Dict[str, Any]]: List of historical encounters.
+    """
+    try:
+        scope_sql, scope_params = scoped("created_by")
+        with get_db().read() as cursor:
+            if template_key:
+                # Match the whole template family (versions + forks across the
+                # custom_ boundary, e.g. siyadascribe_01 / siyadascribe_05 / custom_siyadascribe_1)
+                patterns = get_template_family_patterns(template_key)
+                clause = " OR ".join("template_key LIKE ? ESCAPE '\\'" for _ in patterns)
+                cursor.execute(
+                    f"""
+                    SELECT id, encounter_date, template_key, template_data
+                    FROM encounters
+                    WHERE ur_number = ? AND ({clause}){scope_sql}
+                    ORDER BY encounter_date DESC
+                    """,
+                    (ur_number, *patterns, *scope_params),
+                )
+            else:
+                cursor.execute(
+                    f"""
+                    SELECT id, encounter_date, template_key, template_data
+                    FROM encounters
+                    WHERE ur_number = ?{scope_sql}
+                    ORDER BY encounter_date DESC
+                    """,
+                    (ur_number, *scope_params),
+                )
+
+            rows = cursor.fetchall()
+
+        encounters = []
+        for row in rows:
+            # Exact template first; else latest version in the same family
+            # (e.g. a siyadascribe_05 note resolves against siyadascribe_01/siyadascribe_02)
+            template = get_template_by_key(row["template_key"]) or get_template_by_key(
+                row["template_key"], exact_match=False
+            )
+            if not template:
+                continue
+
+            persistent_fields = get_persistent_fields(template["template_key"])
+            template_data = json.loads(row["template_data"]) if row["template_data"] else {}
+
+            persistent_data = {
+                field.field_key: template_data.get(field.field_key) for field in persistent_fields
+            }
+
+            encounters.append(
+                {
+                    "id": row["id"],
+                    "encounter_date": row["encounter_date"],
+                    "template_key": row["template_key"],
+                    "template_data": persistent_data,
+                }
+            )
+
+        return encounters
+    except Exception as e:
+        logging.error(f"Error fetching patient history: {e}")
+        raise
+
+
+def delete_patient_by_id(note_id: int) -> bool:
+    """
+    Delete a patient record.
+
+    Args:
+        note_id (int): The ID of the patient to delete.
+
+    Returns:
+        bool: True if deleted successfully.
+    """
+    try:
+        scope_sql, scope_params = scoped("created_by")
+        with get_db().transaction() as cursor:
+            cursor.execute(
+                f"DELETE FROM encounters WHERE id = ?{scope_sql}",
+                (note_id, *scope_params),
+            )
+            return cursor.rowcount > 0
+    except Exception as e:
+        logging.error(f"Error deleting patient: {e}")
+        raise
+
+
+def get_latest_encounter(ur_number: str, exclude_date: str | None = None) -> dict[str, Any] | None:
+    """Fetch the most recent encounter for a patient."""
+    try:
+        scope_sql, scope_params = scoped("created_by")
+        with get_db().read() as cursor:
+            if exclude_date:
+                cursor.execute(
+                    f"""
+                    SELECT id, encounter_date, template_key, template_data, encounter_summary
+                    FROM encounters
+                    WHERE ur_number = ? AND encounter_date < ?{scope_sql}
+                    ORDER BY encounter_date DESC
+                    LIMIT 1
+                    """,
+                    (ur_number, exclude_date, *scope_params),
+                )
+            else:
+                cursor.execute(
+                    f"""
+                    SELECT id, encounter_date, template_key, template_data, encounter_summary
+                    FROM encounters
+                    WHERE ur_number = ?{scope_sql}
+                    ORDER BY encounter_date DESC
+                    LIMIT 1
+                    """,
+                    (ur_number, *scope_params),
+                )
+            row = cursor.fetchone()
+            return dict(row) if row else None
+    except Exception as e:
+        logging.error(f"Error fetching latest encounter: {e}")
+        raise
+
+
+def get_patient_notes(
+    ur_number: str | None = None, patient_name: str | None = None
+) -> list[dict[str, Any]]:
+    """Fetch all encounters (text columns + demographics) for note-search."""
+    try:
+        scope_sql, scope_params = scoped("e.created_by")
+        with get_db().read() as cursor:
+            if ur_number:
+                cursor.execute(
+                    f"""
+                    SELECT e.id, e.ur_number, e.encounter_date,
+                           e.template_data, e.raw_transcription, e.encounter_summary, e.final_letter,
+                           p.first_name, p.last_name, p.dob
+                    FROM encounters e
+                    LEFT JOIN patient_profiles p ON p.ur_number = e.ur_number
+                    WHERE e.ur_number = ?{scope_sql}
+                    ORDER BY e.encounter_date DESC
+                    """,
+                    (ur_number, *scope_params),
+                )
+            elif patient_name:
+                cursor.execute(
+                    f"""
+                    SELECT e.id, e.ur_number, e.encounter_date,
+                           e.template_data, e.raw_transcription, e.encounter_summary, e.final_letter,
+                           p.first_name, p.last_name, p.dob
+                    FROM encounters e
+                    LEFT JOIN patient_profiles p ON p.ur_number = e.ur_number
+                    WHERE LOWER(COALESCE(p.last_name || ', ' || p.first_name, '')) LIKE LOWER(?){scope_sql}
+                    ORDER BY e.encounter_date DESC
+                    """,
+                    (f"%{patient_name}%", *scope_params),
+                )
+            else:
+                return []
+            return [dict(row) for row in cursor.fetchall()]
+    except Exception as e:
+        logging.error(f"Error searching patient notes: {e}")
+        raise
+
+
+def update_patient_summary(
+    note_id: int, encounter_summary: str, primary_condition: str | None
+) -> None:
+    """
+    Update only the encounter summary and primary condition fields for a patient.
+
+    This function is called by the background summarization task to populate
+    these fields after the patient record has already been saved.
+
+    Args:
+        note_id (int): The ID of the patient to update.
+        encounter_summary (str): The generated encounter summary.
+        primary_condition (str): The extracted primary condition.
+    """
+    try:
+        scope_sql, scope_params = scoped("created_by")
+        with get_db().transaction() as cursor:
+            cursor.execute(
+                f"""
+                UPDATE encounters
+                SET encounter_summary = ?,
+                    primary_condition = ?,
+                    updated_at = ?
+                WHERE id = ?{scope_sql}
+                """,
+                (
+                    encounter_summary,
+                    primary_condition,
+                    datetime.now().isoformat(),
+                    note_id,
+                    *scope_params,
+                ),
+            )
+    except Exception as e:
+        logging.error(f"Error updating patient summary: {e}")
+        raise

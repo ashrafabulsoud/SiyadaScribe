@@ -3,7 +3,7 @@ import React, { useState, useEffect } from "react";
 import { Box } from "@chakra-ui/react";
 import DashboardChat from "../components/dashboard/DashboardChat";
 import DisclaimerModal from "../components/modals/DisclaimerModal";
-import { useAppInit } from "../App";
+import { useAppInit } from "../utils/context/appInit";
 
 const LandingPage = () => {
   const { isInitializing } = useAppInit();
@@ -29,7 +29,7 @@ const LandingPage = () => {
   };
 
   return (
-    <Box h="calc(100vh - 60px)" position="relative" overflow="hidden">
+    <Box h="calc(100dvh - 60px)" position="relative" overflow="hidden">
       <DisclaimerModal isOpen={showDisclaimer} onClose={handleDisclaimerClose} />
       <DashboardChat />
     </Box>

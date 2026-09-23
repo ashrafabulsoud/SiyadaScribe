@@ -1,20 +1,12 @@
-// Utility functions for formatting names and dates
-export const formatCollectionName = (name) => {
-    return name
-        .replace(/_/g, " ")
-        .replace(/\b\w/g, (char) => char.toUpperCase());
-};
+import i18n from "@/i18n";
 
-export const formatPatientName = (name) => {
-    const nameParts = name.split(", ");
-    const firstNameInitial = nameParts[1] ? nameParts[1][0] : "";
-    const lastName = nameParts[0];
-    return `${firstNameInitial}. ${lastName}`;
-};
+export const formatCollectionName = (name) => name;
 
 export const formatDate = (date) => {
     if (!date) return "";
-    return new Date(date).toLocaleDateString("en-US", {
+    // Resolve a locale from the active i18n language (e.g. "en" -> "en-US").
+    const locale = i18n.language ? i18n.language.replace("_", "-") : "en-US";
+    return new Date(date).toLocaleDateString(locale, {
         year: "numeric",
         month: "long",
         day: "numeric",

@@ -21,19 +21,27 @@ from fastapi.staticfiles import StaticFiles
 from server.constants import (
     APP_NAME,
     BUILD_DIR,
+    IS_DEMO_MODE,
     IS_DOCKER,
     IS_TESTING,
     PROXY_AUTH_ENABLED,
     PROXY_AUTH_USER_HEADER,
     RATE_LIMIT_ENABLED,
+    SIYADASCRIBE_ALLOW_UNAUTHENTICATED,
+    SIYADASCRIBE_PASSPHRASE,
+    TRUSTED_PROXY_IPS,
 )
 from server.middleware import (
+    AuditMiddleware,
     LocalTokenMiddleware,
     ProxyAuthMiddleware,
     RateLimitMiddleware,
+    RequestBodyLimitMiddleware,
     SecurityHeadersMiddleware,
     TrustedProxyMiddleware,
+    invalid_trusted_proxy_entries,
 )
+from server.utils.parent_watchdog import start_parent_watchdog
 
 logging.basicConfig(
     level=logging.INFO,
@@ -75,11 +83,50 @@ async def lifespan(_app: FastAPI):
         "interval",
         minutes=5,
     )
+    # Purge expired audit log rows once per day
+    from server.database.repositories.audit import purge_old_events
+
+    scheduler.add_job(purge_old_events, "interval", hours=24)
+    # Purge expired login sessions once per day
+    from server.database.repositories.users import purge_expired_sessions
+
+    scheduler.add_job(purge_expired_sessions, "interval", hours=24)
 
     yield
 
     # Shutdown
     scheduler.shutdown()
+
+
+def validate_docker_auth(
+    *,
+    passphrase: str,
+    proxy_auth_enabled: bool,
+    trusted_proxy_ips: list,
+    allow_unauthenticated: bool,
+) -> None:
+    """Validate Docker auth configuration. Login is enforced by construction."""
+    invalid_ips = invalid_trusted_proxy_entries(trusted_proxy_ips)
+    if invalid_ips:
+        raise SystemExit(
+            "TRUSTED_PROXY_IPS contains invalid entries (expected IPs/CIDRs): "
+            f"{', '.join(invalid_ips)}"
+        )
+    if proxy_auth_enabled and not trusted_proxy_ips:
+        raise SystemExit(
+            "PROXY_AUTH_ENABLED=true requires TRUSTED_PROXY_IPS (comma-separated\n"
+            "IPs/CIDRs of your reverse proxy, e.g. TRUSTED_PROXY_IPS=172.16.0.2)."
+        )
+    if passphrase:
+        logger.warning(
+            "SIYADASCRIBE_PASSPHRASE is deprecated and ignored - user accounts are "
+            "created via first-run setup (/api/auth/setup)"
+        )
+    if allow_unauthenticated:
+        logger.warning(
+            "SIYADASCRIBE_ALLOW_UNAUTHENTICATED=true - all requests run as admin. "
+            "Explicit risk acceptance."
+        )
 
 
 def initialize_and_get_app():
@@ -91,6 +138,15 @@ def initialize_and_get_app():
     logger.info("Initializing DB and running migrations...")
 
     logger.info("Database initialized")
+
+    if IS_DEMO_MODE:
+        try:
+            from server.demo.demo_db import seed_demo_data_desktop
+
+            seed_demo_data_desktop()
+            logger.info("Demo data seeded (SIYADASCRIBE_DEMO_MODE).")
+        except Exception as e:  # pragma: no cover - never block startup
+            logger.warning("Demo seeding skipped/failed: %s", e)
 
     app = FastAPI(
         title=APP_NAME,
@@ -124,21 +180,26 @@ def initialize_and_get_app():
     # So we add in reverse order: Token -> Proxy -> RateLimit -> TrustedProxy -> Security
     # This ensures TrustedProxy sets client_ip before RateLimit needs it
 
-    # Add token verification middleware (only for desktop mode)
-    if not IS_DOCKER:
-        app.add_middleware(LocalTokenMiddleware)
+    # Add request body size limit (innermost - runs after auth, wraps raw ASGI receive)
+    app.add_middleware(RequestBodyLimitMiddleware)
+
+    # Add token verification middleware
+    app.add_middleware(LocalTokenMiddleware)
 
     # Add proxy auth middleware (for Docker deployments behind auth proxy)
     if PROXY_AUTH_ENABLED:
         app.add_middleware(ProxyAuthMiddleware)
-        logger.info(f"Proxy auth enabled, header: {PROXY_AUTH_USER_HEADER}")
+        logger.info(
+            f"Proxy auth enabled, header: {PROXY_AUTH_USER_HEADER}, "
+            f"trusted proxies: {len(TRUSTED_PROXY_IPS)} entries"
+        )
 
     # Add rate limiting middleware (enabled by default in Docker mode)
     if RATE_LIMIT_ENABLED:
         app.add_middleware(RateLimitMiddleware)
         logger.info("Rate limiting enabled")
 
-    # TrustedProxy must be added after RateLimit so it runs BEFORE RateLimit
+    app.add_middleware(AuditMiddleware)
     app.add_middleware(TrustedProxyMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
 
@@ -151,7 +212,7 @@ def initialize_and_get_app():
         transcribe,
     )
     from server.api.config import router as config_router
-    from server.utils.rag.chroma import CHROMADB_AVAILABLE
+    from server.rag.vector_store import VECTOR_STORE_AVAILABLE
 
     # Only create test endpoint in testing environment
     if IS_TESTING and test_database is not None:
@@ -173,29 +234,42 @@ def initialize_and_get_app():
     app.include_router(transcribe.router, prefix="/api/transcribe")
     app.include_router(dashboard.router, prefix="/api/dashboard")
 
-    # Always register chat router (works without chromadb)
+    # Always register chat router (works without vector store)
     from server.api import chat
 
     app.include_router(chat.router, prefix="/api/chat")
 
-    # Conditionally include RAG router (requires chromadb)
-    if CHROMADB_AVAILABLE:
+    # Conditionally include RAG router (requires sqlite-vec)
+    if VECTOR_STORE_AVAILABLE:
         from server.api import rag
 
         app.include_router(rag.router, prefix="/api/rag")
     else:
-        logger.warning("RAG features disabled - chromadb not available.")
+        logger.warning("RAG features disabled - sqlite-vec not available.")
 
     app.include_router(config_router, prefix="/api/config")
+
+    # Auth routes (login/setup for Docker; /me resolves to the implicit
+    # desktop admin via LocalTokenMiddleware in Tauri builds)
+    from server.api import auth
+
+    app.include_router(auth.router, prefix="/api/auth")
+
     app.include_router(templates.router, prefix="/api/templates")
     app.include_router(letter.router, prefix="/api/letter")
+
+    from server.api import audit, pdf_forms
+
+    app.include_router(audit.router, prefix="/api/audit")
+    app.include_router(pdf_forms.router, prefix="/api/pdf-forms")
 
     # React app routes
     @app.get("/new-note")
     @app.get("/settings")
+    @app.get("/setup")
     @app.get("/rag")
     @app.get("/clinic-summary")
-    @app.get("/outstanding-tasks")
+    @app.get("/outstanding-jobs")
     @app.get("/note/{note_id}")
     async def serve_react_app():
         return FileResponse(BUILD_DIR / "index.html")
@@ -217,7 +291,19 @@ def initialize_and_get_app():
 if IS_DOCKER:
     from server.database.core.connection import initialize_database
 
+    if not IS_TESTING:
+        validate_docker_auth(
+            passphrase=SIYADASCRIBE_PASSPHRASE,
+            proxy_auth_enabled=PROXY_AUTH_ENABLED,
+            trusted_proxy_ips=TRUSTED_PROXY_IPS,
+            allow_unauthenticated=SIYADASCRIBE_ALLOW_UNAUTHENTICATED,
+        )
+
     initialize_database()  # Uses env/secret
+    if SIYADASCRIBE_ALLOW_UNAUTHENTICATED:
+        from server.database.repositories.users import ensure_implicit_admin
+
+        ensure_implicit_admin()
     app = initialize_and_get_app()
 else:
     # Desktop mode: app will be initialized after passphrase is received
@@ -244,7 +330,7 @@ def start_server_for_desktop():
     # Generate cryptographically secure request token
     token = secrets.token_hex(32)  # 64 character hex string (256 bits)
     set_request_token(token)
-    logger.info(token)
+    logger.info("Request token generated (256 bits)")
 
     # Signal that we're waiting for passphrase
     print("WAITING_FOR_PASSPHRASE", flush=True)
@@ -266,24 +352,38 @@ def start_server_for_desktop():
         print(f"ERROR:{e}", flush=True)
         sys.exit(1)
 
+    # Desktop is single-user: implicit admin owns everything, no login screen.
+    from server.database.repositories.users import ensure_implicit_admin
+
+    ensure_implicit_admin()
+
     # Now initialize the app
     app = initialize_and_get_app()
 
-    # Find 3 ports - one for each service
+    # Find ports - one for each service
     server_port = find_free_port()
     llama_port = find_free_port()
     whisper_port = find_free_port()
+    embedding_port = find_free_port()
 
     # Store in global state for other modules to access
     from server.utils.allocated_ports import set_ports
 
-    set_ports(server_port, llama_port, whisper_port)
+    set_ports(server_port, llama_port, whisper_port, embedding_port)
 
     # Write ports and token to stdout so process manager can read them
     print(
-        f"PORTS:{server_port},{llama_port},{whisper_port}|TOKEN:{get_request_token()}",
+        f"PORTS:{server_port},{llama_port},{whisper_port},{embedding_port}|TOKEN:{get_request_token()}",
         flush=True,
     )
+
+    # Start parent-PID watchdog
+    parent_pid = os.environ.get("SIYADASCRIBE_PARENT_PID")
+    if parent_pid:
+        try:
+            start_parent_watchdog(int(parent_pid))
+        except ValueError:
+            logger.warning("Invalid SIYADASCRIBE_PARENT_PID: %r", parent_pid)
 
     config = uvicorn.Config(
         app,
@@ -294,6 +394,7 @@ def start_server_for_desktop():
         loop="asyncio",
         workers=0,
         http="httptools",
+        proxy_headers=False,
     )
     server = uvicorn.Server(config)
     server.run()
@@ -308,7 +409,7 @@ if __name__ == "__main__":
         config = uvicorn.Config(
             app,
             host=os.getenv("SERVER_HOST", "0.0.0.0"),  # nosec B104
-            port=int(os.getenv("PORT", 5000)),
+            port=int(os.getenv("PORT", "5000")),
             timeout_keep_alive=300,
             timeout_graceful_shutdown=10,
             loop="asyncio",
@@ -316,6 +417,7 @@ if __name__ == "__main__":
             http="httptools",
             ws_ping_interval=None,
             ws_ping_timeout=None,
+            proxy_headers=False,
         )
         server = uvicorn.Server(config)
         server.run()

@@ -1,36 +1,48 @@
 // Custom hook for managing toast notifications.
-import { useToast } from "@chakra-ui/react";
+import { useCallback, useMemo } from "react";
+import { toaster } from "@/components/ui/toaster";
 import { DEFAULT_TOAST_CONFIG } from "../constants";
 
 export const useToastMessage = () => {
-    const toast = useToast();
 
-    const showSuccessToast = (message) => {
-        toast({
-            title: "Success",
-            description: message,
-            status: "success",
-            ...DEFAULT_TOAST_CONFIG,
-        });
-    };
+    const showSuccessToast = useCallback(
+        (message) => {
+            toaster.create({
+                title: "Success",
+                description: message,
+                type: "success",
+                ...DEFAULT_TOAST_CONFIG,
+            });
+        },
+        [],
+    );
 
-    const showErrorToast = (message) => {
-        toast({
-            title: "Error",
-            description: message,
-            status: "error",
-            ...DEFAULT_TOAST_CONFIG,
-        });
-    };
+    const showErrorToast = useCallback(
+        (message) => {
+            toaster.create({
+                title: "Error",
+                description: message,
+                type: "error",
+                ...DEFAULT_TOAST_CONFIG,
+            });
+        },
+        [],
+    );
 
-    const showWarningToast = (message) => {
-        toast({
-            title: "Warning",
-            description: message,
-            status: "warning",
-            ...DEFAULT_TOAST_CONFIG,
-        });
-    };
+    const showWarningToast = useCallback(
+        (message) => {
+            toaster.create({
+                title: "Warning",
+                description: message,
+                type: "warning",
+                ...DEFAULT_TOAST_CONFIG,
+            });
+        },
+        [],
+    );
 
-    return { showSuccessToast, showErrorToast, showWarningToast };
+    return useMemo(
+        () => ({ showSuccessToast, showErrorToast, showWarningToast }),
+        [showSuccessToast, showErrorToast, showWarningToast],
+    );
 };

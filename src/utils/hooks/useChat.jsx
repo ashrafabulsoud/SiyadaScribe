@@ -6,7 +6,7 @@ import { formatPatientContext } from "../chat/messageUtils";
 const RAG_SYSTEM_MESSAGE = {
     role: "system",
     content:
-        "The user is a healthcare professional. They will ask you questions about medical treatment and guidelines.",
+        "The user is a qualified healthcare professional. They will ask you general questions about medical conditions, treatment and guidelines. You are an informational and educational assistant only; you are NOT a clinical decision support tool. Do not provide definitive diagnoses or treatment recommendations. All responses are general and educational; the clinician is solely responsible for all clinical decisions and must rely on their own professional judgement and current authoritative guidelines.",
 };
 
 const getClinicianToolActionLabel = (toolName = "") => {
@@ -78,7 +78,6 @@ export const useChat = ({ mode = "patient" } = {}) => {
     const [userInput, setUserInput] = useState("");
     const [showSuggestions, setShowSuggestions] = useState(true);
     const [loading, setLoading] = useState(false);
-    const [streamStarted, setStreamStarted] = useState(false);
 
     const sendMessage = useCallback(
         async (
@@ -94,7 +93,6 @@ export const useChat = ({ mode = "patient" } = {}) => {
             if (mode === "patient" && (!patient || !currentTemplate)) return;
 
             setLoading(true);
-            setStreamStarted(false);
             setChatExpanded(true);
 
             // Build content for API (includes extracted text from attachments)
@@ -150,6 +148,7 @@ export const useChat = ({ mode = "patient" } = {}) => {
                     : [...messages, userMessageForApi];
 
                 let fullContent = "";
+                let firstChunkSeen = false;
 
                 // Add placeholder assistant message with loading state
                 setMessages((prev) => [
@@ -168,10 +167,10 @@ export const useChat = ({ mode = "patient" } = {}) => {
                     patientContext,
                 )) {
                     if (
-                        !streamStarted &&
+                        !firstChunkSeen &&
                         (chunk.type === "chunk" || chunk.type === "status")
                     ) {
-                        setStreamStarted(true);
+                        firstChunkSeen = true;
                         setLoading(false);
                     }
 
@@ -255,6 +254,43 @@ export const useChat = ({ mode = "patient" } = {}) => {
                             };
                             return newMessages;
                         });
+                    } else if (chunk.type === "artifact" && chunk.artifact) {
+                        if (chunk.artifact.type === "form_fill") {
+                            // form_fill artifacts carry metadata only (no base64 data);
+                            // the frontend fills the PDF client-side via FormFillArtifact.
+                            setMessages((prev) => {
+                                const newMessages = [...prev];
+                                const last = newMessages[newMessages.length - 1];
+                                const existing = last.artifacts || [];
+                                newMessages[newMessages.length - 1] = {
+                                    ...last,
+                                    artifacts: [...existing, chunk.artifact],
+                                    loading: false,
+                                };
+                                return newMessages;
+                            });
+                        } else {
+                            // Binary artifact (e.g. MCP file) — decode base64 payload.
+                            const { data: b64Data, ...meta } = chunk.artifact;
+                            if (!b64Data) return;
+                            const binary = atob(b64Data);
+                            const bytes = new Uint8Array(binary.length);
+                            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+                            const blob = new Blob([bytes], { type: meta.mime_type });
+                            const blobUrl = URL.createObjectURL(blob);
+
+                            setMessages((prev) => {
+                                const newMessages = [...prev];
+                                const last = newMessages[newMessages.length - 1];
+                                const existing = last.artifacts || [];
+                                newMessages[newMessages.length - 1] = {
+                                    ...last,
+                                    artifacts: [...existing, { ...meta, url: blobUrl }],
+                                    loading: false,
+                                };
+                                return newMessages;
+                            });
+                        }
                     }
                 }
             } catch (error) {
@@ -265,7 +301,6 @@ export const useChat = ({ mode = "patient" } = {}) => {
                 ]);
             } finally {
                 setLoading(false);
-                setStreamStarted(false);
             }
         },
         [messages, mode],

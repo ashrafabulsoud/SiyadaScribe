@@ -14,29 +14,27 @@ from server.database.core.connection import (
 from server.database.core.connection import (
     initialize_database,
 )
-from server.database.entities.templates import save_template
-from server.schemas.templates import ClinicalTemplate, TemplateField
+
+initialize_database()
+
+from server.database.repositories.patient import _upsert_profile_with_cursor  # noqa: E402
+from server.database.repositories.templates import save_template  # noqa: E402
+from server.schemas.templates import ClinicalTemplate, TemplateField  # noqa: E402
+from server.utils.helpers import split_name  # noqa: E402
 
 # Get the directory of the current script
 current_dir = Path(__file__).resolve().parent
-
-
-def generate_jobs_list_from_plan(plan: str) -> list[dict]:
-    """Generate a jobs list from a numbered plan."""
-    jobs = [item.strip() for item in plan.split("\n") if item.strip() and item.strip()[0].isdigit()]
-    jobs_list = [
-        {"id": index + 1, "job": job, "completed": False} for index, job in enumerate(jobs)
-    ]
-    return jobs_list
 
 
 def clear_database():
     """Clear existing database tables."""
     initialize_database()
     print("Clearing existing database...")
-    patient_db().cursor.execute("DELETE FROM patients")
-    patient_db().cursor.execute("DELETE FROM clinical_templates")
-    patient_db().commit()
+    db = patient_db()
+    with db.transaction() as cursor:
+        cursor.execute("DELETE FROM encounters")
+        cursor.execute("DELETE FROM patient_profiles")
+        cursor.execute("DELETE FROM clinical_templates")
     print("Database cleared.")
 
 
@@ -78,8 +76,11 @@ def initialize_fake_patients():
             "plan": patient_data["plan"],
         }
 
-        # Generate jobs list from the plan in template data
-        jobs_list = generate_jobs_list_from_plan(template_data["plan"])
+        jobs_list = [
+            {"id": index + 1, "job": job["job"], "completed": job["completed"]}
+            for index, job in enumerate(patient_data["jobs"])
+        ]
+        all_jobs_completed = bool(jobs_list) and all(job["completed"] for job in jobs_list)
 
         patient = {
             "name": patient_data["name"],
@@ -89,52 +90,64 @@ def initialize_fake_patients():
             "encounter_date": encounter_date.strftime("%Y-%m-%d"),
             "template_key": "siyadascribe_01",  # Using SiyadaScribe template for example patients
             "template_data": json.dumps(template_data),
-            "raw_transcription": f"Raw transcription for {patient_data['name']}",
+            "raw_transcription": patient_data["transcript"],
             "transcription_duration": round(random.uniform(5.0, 15.0), 2),  # nosec B311
             "process_duration": round(random.uniform(10.0, 30.0), 2),  # nosec B311
-            "final_letter": f"Final letter for {patient_data['name']}'s appointment",
+            "final_letter": patient_data["letter"],
             "primary_condition": patient_data.get("encounter_summary", "")
             .split(" with ")[-1]
             .strip("."),  # Extract primary condition from summary
             "jobs_list": json.dumps(jobs_list),
-            "all_jobs_completed": False,
+            "all_jobs_completed": all_jobs_completed,
             "encounter_summary": patient_data["encounter_summary"],
         }
 
         fake_patients.append(patient)
 
-    for patient in fake_patients:
-        patient_db().cursor.execute(
-            """
-            INSERT INTO patients (
-                name, dob, ur_number, gender, encounter_date,
-                template_key, template_data, raw_transcription,
-                transcription_duration, process_duration,
-                jobs_list, all_jobs_completed, final_letter,
-                primary_condition, encounter_summary
+    db = patient_db()
+    with db.transaction() as cursor:
+        for patient in fake_patients:
+            cursor.execute(
+                """
+                INSERT INTO encounters (
+                    ur_number, encounter_date,
+                    template_key, template_data, raw_transcription,
+                    transcription_duration, process_duration,
+                    jobs_list, all_jobs_completed, final_letter,
+                    primary_condition, encounter_summary
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    patient["ur_number"],
+                    patient["encounter_date"],
+                    patient["template_key"],
+                    patient["template_data"],
+                    patient["raw_transcription"],
+                    patient["transcription_duration"],
+                    patient["process_duration"],
+                    patient["jobs_list"],
+                    patient["all_jobs_completed"],
+                    patient["final_letter"],
+                    patient["primary_condition"],
+                    patient["encounter_summary"],
+                ),
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                patient["name"],
-                patient["dob"],
-                patient["ur_number"],
-                patient["gender"],
-                patient["encounter_date"],
-                patient["template_key"],
-                patient["template_data"],
-                patient["raw_transcription"],
-                patient["transcription_duration"],
-                patient["process_duration"],
-                patient["jobs_list"],
-                patient["all_jobs_completed"],
-                patient["final_letter"],
-                patient["primary_condition"],
-                patient["encounter_summary"],
-            ),
-        )
 
-    patient_db().commit()
+            first_name, last_name = split_name(str(patient["name"]))
+            _upsert_profile_with_cursor(
+                cursor,
+                {
+                    "ur_number": str(patient["ur_number"]),
+                    "first_name": first_name,
+                    "last_name": last_name,
+                    "dob": str(patient["dob"]),
+                    "gender": str(patient["gender"]),
+                    "address": None,
+                    "phone": None,
+                },
+            )
+
     print(f"Initialized {len(fake_patients)} fake patients.")
 
 
@@ -150,6 +163,26 @@ def main():
         raise
     finally:
         patient_db().close()
+
+
+def seed_demo_data_desktop():
+    """Seed demo data in the desktop (Tauri) app.
+
+    Unlike ``main``/``clear_database`` (which re-initialise the DB without a
+    passphrase for Docker), this assumes the encrypted DB is already open via
+    ``get_db()``. It wipes encounters/profiles/templates and re-seeds the demo
+    patients, so every ``tauri dev`` launch starts from a clean, fullsome state.
+    """
+    db = patient_db()
+    print("Clearing existing data for demo seed...")
+    with db.transaction() as cursor:
+        cursor.execute("DELETE FROM encounters")
+        cursor.execute("DELETE FROM patient_profiles")
+        cursor.execute("DELETE FROM clinical_templates")
+    print("Seeding demo templates and patients...")
+    initialize_templates()
+    initialize_fake_patients()
+    print("Demo data seeded.")
 
 
 if __name__ == "__main__":

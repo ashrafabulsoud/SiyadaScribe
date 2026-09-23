@@ -16,11 +16,6 @@ MAX_BACKUPS = 3  # Keep last 3 backups
 BACKUP_SUBDIR = "backups"  # Subdirectory name within data directory
 
 
-def _get_app_version() -> str:
-    """Get the current app version."""
-    return __version__
-
-
 def create_backup(db_path: str, db_dir: Path) -> str | None:
     """
     Create a backup of the database file before migrations.
@@ -45,12 +40,16 @@ def create_backup(db_path: str, db_dir: Path) -> str | None:
         # Generate backup filename with version and timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         db_name = Path(db_path).name
-        version = _get_app_version()
+        version = __version__
         backup_name = f"{db_name}.v{version}.{timestamp}.bak"
         backup_path = backup_dir / backup_name
 
-        # Copy the database file (it's already encrypted)
+        # Copy the database and wal file (it's already encrypted)
         shutil.copy2(db_path, backup_path)
+        for suffix in ("-wal", "-shm"):
+            sidecar = Path(f"{db_path}{suffix}")
+            if sidecar.exists():
+                shutil.copy2(sidecar, f"{backup_path}{suffix}")
 
         logging.info(f"Database backup created: {backup_path}")
 
@@ -82,39 +81,14 @@ def _rotate_backups(backup_dir: Path, db_name: str) -> None:
             reverse=True,
         )
 
-        # Remove backups beyond our limit
+        # Remove backups beyond our limit, plus their WAL sidecars.
         for old_backup in backups[MAX_BACKUPS:]:
             old_backup.unlink()
+            for suffix in ("-wal", "-shm"):
+                sidecar = Path(f"{old_backup}{suffix}")
+                if sidecar.exists():
+                    sidecar.unlink()
             logging.info(f"Removed old backup: {old_backup}")
 
     except Exception as e:
         logging.warning(f"Failed to rotate backups: {e}")
-
-
-def list_backups(db_dir: Path) -> list:
-    """
-    List all available backups.
-
-    Args:
-        db_dir: Parent directory of the database
-
-    Returns:
-        List of backup file info dicts
-    """
-    backup_dir = db_dir / BACKUP_SUBDIR
-    if not backup_dir.exists():
-        return []
-
-    backups = []
-    for backup_file in sorted(backup_dir.glob("*.bak"), reverse=True):
-        stat = backup_file.stat()
-        backups.append(
-            {
-                "path": str(backup_file),
-                "name": backup_file.name,
-                "size": stat.st_size,
-                "created": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-            }
-        )
-
-    return backups

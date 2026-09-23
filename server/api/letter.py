@@ -3,7 +3,7 @@ import logging
 from fastapi import APIRouter, Body, HTTPException
 from fastapi.responses import JSONResponse
 
-from server.database.entities.letter import (
+from server.database.repositories.letter import (
     delete_letter_template,
     fetch_patient_letter,
     get_letter_template_by_id,
@@ -13,8 +13,9 @@ from server.database.entities.letter import (
     update_letter_template,
     update_patient_letter,
 )
+from server.nlp_tools.letter import generate_letter_content
 from server.schemas.letter import LetterRequest, LetterSave, LetterTemplate
-from server.utils.nlp_tools.letter import generate_letter_content
+from server.utils.current_user import require_admin
 
 router = APIRouter()
 
@@ -24,7 +25,7 @@ async def generate_letter(request: LetterRequest):
     """Generates a letter."""
 
     try:
-        letter_content = await generate_letter_content(
+        result = await generate_letter_content(
             request.patientName,
             request.gender,
             request.dob,
@@ -32,16 +33,16 @@ async def generate_letter(request: LetterRequest):
             request.additional_instruction,
             request.context,
         )
-        return JSONResponse(content={"letter": letter_content})
+        return JSONResponse(content=result)
     except HTTPException as he:
         raise he
     except Exception as e:
         logging.error(f"Unexpected error in generate_letter endpoint: {e}")
-        raise HTTPException(status_code=500, detail=f"Unexpected error: {e}") from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.post("/save")
-async def save_letter(request: LetterSave):
+def save_letter(request: LetterSave):
     """Saves a letter."""
     try:
         update_patient_letter(request.noteId, request.letter)
@@ -49,22 +50,22 @@ async def save_letter(request: LetterSave):
         return {"message": "Letter saved successfully"}
     except Exception as e:
         logging.error(f"Error updating patient letter: {e}")
-        raise HTTPException(status_code=500, detail=e) from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.get("/fetch-letter")
-async def fetch_letter(noteId: int):
+def fetch_letter(noteId: int):
     """Fetches a letter by note ID."""
     try:
-        letter = await fetch_patient_letter(noteId)
+        letter = fetch_patient_letter(noteId)
         return JSONResponse(content={"letter": letter or "No letter attached to encounter"})
     except Exception as e:
         logging.error(f"Error fetching letter: {e}")
-        raise HTTPException(status_code=500, detail=e) from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.get("/templates")
-async def get_templates():
+def get_templates():
     """Get all letter templates."""
     try:
         templates = get_letter_templates()
@@ -84,11 +85,11 @@ async def get_templates():
         )
     except Exception as e:
         logging.error(f"Error fetching letter templates: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.get("/templates/{template_id}")
-async def get_template(template_id: int):
+def get_template(template_id: int):
     """Get a letter template by ID."""
     try:
         template = get_letter_template_by_id(template_id)
@@ -99,11 +100,11 @@ async def get_template(template_id: int):
         raise
     except Exception as e:
         logging.error(f"Error fetching letter template: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.post("/templates")
-async def create_template(template: LetterTemplate = Body(...)):
+def create_template(template: LetterTemplate = Body(...)):
     """Create a letter template."""
     try:
         template_id = save_letter_template(template)
@@ -115,22 +116,23 @@ async def create_template(template: LetterTemplate = Body(...)):
         )
     except Exception as e:
         logging.error(f"Error creating letter template: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.post("/templates/reset")
-async def reset_templates():
-    """Reset letter templates to default."""
+def reset_templates():
+    """Reset letter templates to default. Admin only."""
+    require_admin()
     try:
         reset_default_templates()
         return JSONResponse(content={"message": "Templates reset to defaults"})
     except Exception as e:
         logging.error(f"Error resetting letter templates: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.put("/templates/{template_id}")
-async def update_template(template_id: int, template: LetterTemplate = Body(...)):
+def update_template(template_id: int, template: LetterTemplate = Body(...)):
     """Update a letter template."""
     try:
         success = update_letter_template(template_id, template)
@@ -141,11 +143,11 @@ async def update_template(template_id: int, template: LetterTemplate = Body(...)
         raise
     except Exception as e:
         logging.error(f"Error updating letter template: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.delete("/templates/{template_id}")
-async def delete_template(template_id: int):
+def delete_template(template_id: int):
     """Delete a letter template."""
     try:
         success = delete_letter_template(template_id)
@@ -156,4 +158,4 @@ async def delete_template(template_id: int):
         raise
     except Exception as e:
         logging.error(f"Error deleting letter template: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e

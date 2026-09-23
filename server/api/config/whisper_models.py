@@ -12,7 +12,7 @@ from fastapi import APIRouter, Body, HTTPException
 from fastapi.responses import StreamingResponse
 
 from server.constants import IS_DOCKER
-from server.utils.whisper_models import whisper_model_manager
+from server.utils.whisper_models import PARAKEET_TDT_V3_LANGUAGES, whisper_model_manager
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -62,7 +62,7 @@ async def download_whisper_model(
         raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
         logger.error(f"Error downloading model {model_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to download model: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Failed to download model") from e
 
 
 @router.get("/local/whisper/models/download/stream")
@@ -164,54 +164,42 @@ async def get_whisper_status():
 async def get_whisper_model_recommendations():
     """Get Whisper model recommendations.
 
-    Returns a curated list of models with plain English descriptions.
+    Multilingual model is offered when the user selects a
+    non-English language.
     """
     model_recommendations = [
         {
-            "id": "tiny.en",
-            "name": "tiny.en",
-            "simple_name": "Tiny",
-            "size": "39MB",
-            "description": "Great for real-time transcription during appointments",
-            "badge": "⚡ Fast",
-            "badge_color": "blue",
-        },
-        {
-            "id": "base.en",
-            "name": "base.en",
-            "simple_name": "Standard",
-            "size": "74MB",
-            "description": "A good balance of speed and accuracy for everyday use",
+            "id": "omi-med-stt-v1-q8_0",
+            "name": "omi-med-stt-v1-q8_0",
+            "simple_name": "Omi Med STT",
+            "size": "886MB",
+            "description": "English medical speech-to-text, tuned for clinical use",
             "badge": "⭐ Recommended",
             "badge_color": "purple",
+            "languages": ["en"],
         },
         {
-            "id": "small.en",
-            "name": "small.en",
-            "simple_name": "Accurate",
-            "size": "244MB",
-            "description": "Better accuracy, still quick enough for most uses",
-            "badge": "🎯 Best Quality",
-            "badge_color": "green",
-        },
-        {
-            "id": "medium.en",
-            "name": "medium.en",
-            "simple_name": "Professional",
-            "size": "769MB",
-            "description": "High accuracy when quality matters most",
-            "badge": "💎 Premium",
-            "badge_color": "orange",
-        },
-        {
-            "id": "large-v3",
-            "name": "large-v3",
-            "simple_name": "Multilingual",
-            "size": "1.5GB",
-            "description": "Best accuracy, supports many languages",
-            "badge": "🌍 Multi",
-            "badge_color": "teal",
+            "id": "tdt-0.6b-v3-q8_0",
+            "name": "tdt-0.6b-v3-q8_0",
+            "simple_name": "Parakeet Multilingual",
+            "size": "941MB",
+            "description": "Multilingual speech-to-text (25 European languages)",
+            "badge": "🌐 Multilingual",
+            "badge_color": "blue",
+            "languages": PARAKEET_TDT_V3_LANGUAGES,
         },
     ]
 
     return {"models": model_recommendations}
+
+
+@router.get("/local/whisper/selected-model")
+async def get_selected_whisper_model():
+    """Get the currently selected (active) STT model id, if any."""
+    if IS_DOCKER:
+        raise HTTPException(
+            status_code=400,
+            detail="Whisper models are only available in Tauri builds",
+        )
+
+    return {"selected_model_id": whisper_model_manager.get_selected_model_id()}

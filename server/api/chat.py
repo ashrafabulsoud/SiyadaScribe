@@ -8,21 +8,16 @@ from fastapi.exceptions import HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from server.chat import ChatEngine
+from server.constants import DATA_DIR
 from server.database.config.manager import config_manager
+from server.llm_client.client import AsyncLLMClient, get_llm_client, resolve_effective_api_key
+from server.nlp_tools.document_processing import extract_text_from_document
 from server.schemas.chat import ChatRequest, ChatResponse
-from server.utils.chat import ChatEngine
-from server.utils.llm_client.client import AsyncLLMClient, get_llm_client
-from server.utils.nlp_tools.document_processing import extract_text_from_document
+from server.schemas.documents import VisualDocumentPage
+from server.utils.current_user import require_admin
 
 router = APIRouter()
-
-
-class VisualDocumentPage(BaseModel):
-    page_number: int
-    data_url: str
-    mime_type: str | None = None
-    width: int | None = None
-    height: int | None = None
 
 
 class VisualDocumentRequest(BaseModel):
@@ -83,9 +78,16 @@ def _build_vision_cache_key(provider: str, base_url: str, model: str) -> str:
     return f"{normalized_provider}|{normalized_base}|{normalized_model}"
 
 
-def _get_vision_capability_cache(config: dict) -> dict:
-    cache = config.get("VISION_CAPABILITY_CACHE", {})
-    return cache if isinstance(cache, dict) else {}
+def _is_local_vision_capable(config: dict) -> bool:
+    """Local (Tauri) builds always run vision-capable VLMs with a projector."""
+    if config.get("LLM_BASE_URL"):
+        return False  # remote mode — use the normal probe/cache path
+    return any((DATA_DIR / "llm_models").glob("*mmproj*.gguf"))
+
+
+def _get_vision_capability_cache() -> dict:
+    """Vision capability rows from the persisted capability store."""
+    return config_manager.get_capabilities()
 
 
 def _store_vision_probe_result(
@@ -98,21 +100,14 @@ def _store_vision_probe_result(
     detail: str,
 ):
     cache_key = _build_vision_cache_key(provider, base_url, model)
-    current_config = config_manager.get_config()
-    cache = _get_vision_capability_cache(current_config)
-    cache[cache_key] = {
-        "vision_capable": bool(vision_capable),
-        "status_code": int(status_code),
-        "detail": detail,
-        "probed_at": datetime.now(UTC).isoformat(),
-    }
-
-    config_manager.update_config(
+    config_manager.set_capability(
+        cache_key,
         {
-            "VISION_CAPABILITY_CACHE": cache,
-            "VISION_CAPABILITY_CACHE_KEY": cache_key,
-            "VISION_MODEL_CAPABLE": bool(vision_capable),
-        }
+            "vision_capable": bool(vision_capable),
+            "status_code": int(status_code),
+            "detail": detail,
+            "probed_at": datetime.now(UTC).isoformat(),
+        },
     )
 
 
@@ -188,7 +183,7 @@ async def chat(
         return StreamingResponse(generate(), media_type="text/event-stream")
     except Exception as e:
         logging.error(f"An error occurred: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.post("/upload-image")
@@ -217,10 +212,13 @@ async def upload_image(file: UploadFile = File(...)):
     except RuntimeError as e:
         # OCR dependencies not available
         logging.error(f"OCR not available: {e}")
-        raise HTTPException(status_code=503, detail=str(e)) from e
+        raise HTTPException(status_code=503, detail="OCR dependencies not available") from e
+    except ValueError as e:
+        # Image exceeded pixel cap
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logging.error(f"Error processing image: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.post("/analyze-document-visual", response_model=VisualDocumentResponse)
@@ -305,11 +303,11 @@ async def analyze_document_visual(payload: VisualDocumentRequest):
         raise
     except Exception as e:
         logging.error(f"Error analyzing visual document payload: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.get("/vision-capability/current", response_model=VisionCurrentCapabilityResponse)
-async def get_current_vision_capability():
+def get_current_vision_capability():
     """Return cached vision capability for the currently selected provider/base_url/model."""
     config = config_manager.get_config()
     provider = config.get("LLM_PROVIDER", "openai")
@@ -317,8 +315,19 @@ async def get_current_vision_capability():
     model = config.get("PRIMARY_MODEL", "")
 
     cache_key = _build_vision_cache_key(provider, base_url, model)
-    cache = _get_vision_capability_cache(config)
+    cache = _get_vision_capability_cache()
     cached_result = cache.get(cache_key)
+
+    # Local (Tauri) builds ship VLMs with a projector — vision is always available.
+    if _is_local_vision_capable(config):
+        return {
+            "vision_capable": True,
+            "status_code": 200,
+            "detail": "Local vision model with projector loaded.",
+            "cache_key": cache_key,
+            "source": "local_assumed",
+            "probed_at": None,
+        }
 
     if cached_result:
         return {
@@ -330,13 +339,13 @@ async def get_current_vision_capability():
             "probed_at": cached_result.get("probed_at"),
         }
 
-    # Backward compatibility fallback to global flag
+    # Persisted capability store is the single source of truth.
     return {
-        "vision_capable": bool(config.get("VISION_MODEL_CAPABLE", False)),
+        "vision_capable": False,
         "status_code": 200,
-        "detail": "No cache entry for current model endpoint; using global flag fallback.",
+        "detail": "No cache entry for current model endpoint; probe required.",
         "cache_key": cache_key,
-        "source": "global_flag",
+        "source": "no_cache",
         "probed_at": None,
     }
 
@@ -350,10 +359,12 @@ async def probe_vision_capability(payload: VisionCapabilityProbeRequest):
     - If the call succeeds, assume vision-capable.
     - If it fails with a 400-style unsupported-image error, assume not vision-capable.
     """
+    require_admin()
     config = config_manager.get_config()
     model = payload.model or config.get("PRIMARY_MODEL", "")
     base_url = payload.base_url or config.get("LLM_BASE_URL")
-    api_key = payload.api_key or config.get("LLM_API_KEY")
+
+    api_key = resolve_effective_api_key(payload.base_url, payload.api_key)
 
     # 1x1 black PNG
     black_square_data_url = (
@@ -410,6 +421,7 @@ async def probe_vision_capability(payload: VisionCapabilityProbeRequest):
     except Exception as e:
         error_text = str(e)
         lowered = error_text.lower()
+        logging.error("Vision probe failed: %s", error_text, exc_info=True)
 
         looks_like_unsupported_vision = (
             "400" in lowered
@@ -421,7 +433,9 @@ async def probe_vision_capability(payload: VisionCapabilityProbeRequest):
         result_payload = {
             "vision_capable": False,
             "status_code": 400 if looks_like_unsupported_vision else 500,
-            "detail": error_text,
+            "detail": "Vision model not supported"
+            if looks_like_unsupported_vision
+            else "Internal server error",
         }
 
         _store_vision_probe_result(

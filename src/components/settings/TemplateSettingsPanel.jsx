@@ -1,299 +1,326 @@
 import {
-  Box,
-  Flex,
-  IconButton,
-  Text,
-  Collapse,
-  Button,
-  VStack,
-  HStack,
-  useColorMode,
-  useToast,
+    Box,
+    Flex,
+    HStack,
+    IconButton,
+    Text,
+    Button,
+    VStack,
+    Badge,
 } from "@chakra-ui/react";
-import {
-  ChevronRightIcon,
-  ChevronDownIcon,
-  AddIcon,
-  DeleteIcon,
-} from "@chakra-ui/icons";
+import { toaster } from "@/components/ui/toaster";
+import { AddIcon, DeleteIcon, EditIcon, RepeatIcon } from "../common/icons";
 import { FaFileAlt } from "react-icons/fa";
+import { Tooltip } from "@/components/ui/tooltip";
 import { useState } from "react";
 import TemplateEditor from "../modals/TemplateEditor";
 import NewTemplateFromExampleModal from "../modals/NewTemplateFromExampleModal";
 import DeleteConfirmationModal from "../modals/DeleteConfirmationModal";
 import { templateApi } from "../../utils/api/templateApi";
 import { useTemplate } from "../../utils/templates/templateContext";
-import { buildApiUrl } from "../../utils/helpers/apiConfig";
-import { universalFetch } from "../../utils/helpers/apiHelpers";
+import { isDefaultTemplate, isCustomizedDefault } from "../../utils/templates/templateService";
 
-const TemplateSettingsPanel = ({
-  isCollapsed,
-  setIsCollapsed,
-  templates,
-  setTemplates,
-}) => {
-  const { colorMode } = useColorMode();
-  const [selectedTemplate, setSelectedTemplate] = useState(null);
-  const [selectedTemplateKey, setSelectedTemplateKey] = useState(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isNewTemplate, setIsNewTemplate] = useState(false);
-  // eslint-disable-next-line no-unused-vars
-  const [isSaving, setIsSaving] = useState(false);
-  const toast = useToast();
+const TemplateSettingsPanel = ({ templates, setTemplates }) => {
+    const [selectedTemplate, setSelectedTemplate] = useState(null);
+    const [selectedTemplateKey, setSelectedTemplateKey] = useState(null);
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [isNewTemplate, setIsNewTemplate] = useState(false);
+    const [, setIsSaving] = useState(false);
 
-  // State for new template from example
-  const [isNewTemplateModalOpen, setIsNewTemplateModalOpen] = useState(false);
-  const [exampleNote, setExampleNote] = useState("");
-  const [isGeneratingTemplate, setIsGeneratingTemplate] = useState(false);
+    const [isNewTemplateModalOpen, setIsNewTemplateModalOpen] = useState(false);
+    const [exampleNote, setExampleNote] = useState("");
+    const [isGeneratingTemplate, setIsGeneratingTemplate] = useState(false);
 
-  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [templateToDelete, setTemplateToDelete] = useState(null);
-  const { deleteTemplate } = useTemplate();
+    const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+    const [templateToDelete, setTemplateToDelete] = useState(null);
+    const { deleteTemplate } = useTemplate();
 
-  const handleEditTemplate = (templateKey) => {
-    const template = templates.find((t) => t.template_key === templateKey);
-    if (template) {
-      setSelectedTemplate(template);
-      setSelectedTemplateKey(templateKey);
-      setIsNewTemplate(false);
-      setIsModalOpen(true);
-    }
-  };
+    const handleEditTemplate = (templateKey) => {
+        const template = templates.find((t) => t.template_key === templateKey);
+        if (template) {
+            setSelectedTemplate(template);
+            setSelectedTemplateKey(templateKey);
+            setIsNewTemplate(false);
+            setIsModalOpen(true);
+        }
+    };
 
-  const handleSaveTemplate = async (templateKey, updatedTemplate) => {
-    setIsSaving(true);
-    try {
-      // Save to backend
-      // eslint-disable-next-line no-unused-vars
-      const response = await templateApi.saveTemplates([updatedTemplate]);
+    const handleSaveTemplate = async (templateKey, updatedTemplate) => {
+        setIsSaving(true);
+        try {
+            const result = await templateApi.saveTemplates([updatedTemplate]);
+            const newKey = result?.updated_keys?.[templateKey];
+            const freshTemplates = await templateApi.fetchTemplates();
+            setTemplates(freshTemplates);
 
-      // Fetch fresh templates list
-      const freshTemplates = await templateApi.fetchTemplates();
-      setTemplates(freshTemplates);
+            toaster.create({
+                title: "Success",
+                description:
+                    newKey && newKey !== templateKey
+                        ? `Saved as your own copy: ${newKey}`
+                        : "Template saved successfully",
+                type: "success",
+                duration: 3000,
+            });
+        } catch (error) {
+            console.error("Failed to save template:", error);
+            toaster.create({
+                title: "Error",
+                description: "Failed to save template",
+                type: "error",
+                duration: 3000,
+            });
+        } finally {
+            setIsSaving(false);
+            setIsModalOpen(false);
+        }
+    };
 
-      toast({
-        title: "Success",
-        description: "Template saved successfully",
-        status: "success",
-        duration: 3000,
-        isClosable: true,
-      });
-    } catch (error) {
-      console.error("Failed to save template:", error);
-      toast({
-        title: "Error",
-        description: "Failed to save template",
-        status: "error",
-        duration: 3000,
-        isClosable: true,
-      });
-    } finally {
-      setIsSaving(false);
-      setIsModalOpen(false);
-    }
-  };
+    const handleDeleteTemplate = async (templateKey) => {
+        try {
+            const success = await deleteTemplate(templateKey);
+            if (success) {
+                const freshTemplates = await templateApi.fetchTemplates();
+                setTemplates(freshTemplates);
+                setIsDeleteModalOpen(false);
+                setTemplateToDelete(null);
+                if (isCustomizedDefault(templateKey)) {
+                    toaster.create({
+                        title: "Success",
+                        description: "Template reset to default",
+                        type: "success",
+                        duration: 3000,
+                    });
+                }
+            }
+        } catch (error) {
+            console.error("Error deleting template:", error);
+            toaster.create({
+                title: "Error",
+                description: error.message || "Failed to delete template",
+                type: "error",
+                duration: 3000,
+            });
+        }
+    };
 
-  const DefaultTemplates = {
-    // List of default template keys
-    DEFAULT_TEMPLATE_KEYS: ["siyadascribe_", "soap_", "progress_"],
+    const handleNewTemplateFromExample = async () => {
+        setIsGeneratingTemplate(true);
+        try {
+            const newTemplate = await templateApi.generateTemplate(exampleNote);
 
-    // Check if a template is a default one
-    isDefaultTemplate: (templateKey) => {
-      return DefaultTemplates.DEFAULT_TEMPLATE_KEYS.some((prefix) =>
-        templateKey.startsWith(prefix),
-      );
-    },
-  };
+            const freshTemplates = await templateApi.fetchTemplates();
+            setTemplates(freshTemplates);
 
-  const handleDeleteTemplate = async (templateKey) => {
-    try {
-      const success = await deleteTemplate(templateKey);
-      if (success) {
-        // Fetch fresh templates list
-        const freshTemplates = await templateApi.fetchTemplates();
+            setSelectedTemplate(newTemplate);
+            setSelectedTemplateKey(newTemplate.template_key);
+            setIsNewTemplateModalOpen(false);
+            setIsNewTemplate(true);
+            setIsModalOpen(true);
+        } catch (error) {
+            console.error("Error generating template from example:", error);
+            toaster.create({
+                title: "Error",
+                description: "Failed to generate template from example",
+                type: "error",
+                duration: 3000,
+            });
+        } finally {
+            setIsGeneratingTemplate(false);
+            setExampleNote("");
+        }
+    };
 
-        // Update the local state with the new templates
-        setTemplates(freshTemplates);
+    const sortedTemplates = Array.isArray(templates)
+        ? [...templates].sort((a, b) => {
+              const isDefaultA = isDefaultTemplate(a.template_key);
+              const isDefaultB = isDefaultTemplate(b.template_key);
+              if (isDefaultA && !isDefaultB) return -1;
+              if (!isDefaultA && isDefaultB) return 1;
+              return 0;
+          })
+        : [];
 
-        // Close the delete confirmation modal
-        setIsDeleteModalOpen(false);
-        setTemplateToDelete(null);
-      }
-    } catch (error) {
-      console.error("Error deleting template:", error);
-      toast({
-        title: "Error",
-        description: error.message || "Failed to delete template",
-        status: "error",
-        duration: 3000,
-        isClosable: true,
-      });
-    }
-  };
+    return (
+        <VStack gap={3} align="stretch">
+            <Flex justify="space-between" align="center">
+                <Text fontSize="xs" className="pill-box-icons" maxW="60%">
+                    Templates control the structure of generated notes. Defaults
+                    can be edited but not removed.
+                </Text>
+                <Button
+                    onClick={() => setIsNewTemplateModalOpen(true)}
+                    variant="outline"
+                    size="sm"
+                    className="nav-button"
+                ><AddIcon />New Template
+                </Button>
+            </Flex>
 
-  const handleNewTemplateFromExample = async () => {
-    setIsGeneratingTemplate(true);
-    try {
-      const response = await universalFetch(
-        await buildApiUrl("/api/templates/generate"),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ exampleNote }),
-        },
-      );
-      if (!response.ok) {
-        throw new Error("Failed to generate template");
-      }
-      const newTemplate = await response.json();
-
-      // Update local templates with the new one
-      const freshTemplates = await templateApi.fetchTemplates();
-      // Make sure we're setting templates as an array
-      setTemplates(freshTemplates);
-
-      setSelectedTemplate(newTemplate);
-      setSelectedTemplateKey(newTemplate.template_key);
-      setIsNewTemplateModalOpen(false);
-      setIsNewTemplate(true); // Mark as new template to allow field editing
-      setIsModalOpen(true);
-    } catch (error) {
-      console.error("Error generating template from example:", error);
-      toast({
-        title: "Error",
-        description: "Failed to generate template from example",
-        status: "error",
-        duration: 3000,
-        isClosable: true,
-      });
-    } finally {
-      setIsGeneratingTemplate(false);
-      setExampleNote("");
-    }
-  };
-
-  return (
-    <Box className="panels-bg" p="4" borderRadius="sm">
-      <Flex align="center" justify="space-between">
-        <Flex align="center">
-          <IconButton
-            icon={isCollapsed ? <ChevronRightIcon /> : <ChevronDownIcon />}
-            onClick={() => setIsCollapsed(!isCollapsed)}
-            aria-label="Toggle collapse"
-            variant="outline"
-            size="sm"
-            mr="2"
-            className="collapse-toggle"
-          />
-          <FaFileAlt size="1.2em" style={{ marginRight: "5px" }} />
-          <Text as="h3">Note Templates</Text>
-        </Flex>
-        <Button
-          leftIcon={<AddIcon />}
-          onClick={() => setIsNewTemplateModalOpen(true)}
-          className="grey-button"
-        >
-          New Template
-        </Button>
-      </Flex>
-      <Collapse in={!isCollapsed} animateOpacity>
-        <VStack spacing={4} align="stretch" mt={4}>
-          {Array.isArray(templates) ? (
-            // Sort templates: default templates first, custom templates last
-            templates
-              .sort((a, b) => {
-                const isDefaultA = DefaultTemplates.isDefaultTemplate(
-                  a.template_key,
-                );
-                const isDefaultB = DefaultTemplates.isDefaultTemplate(
-                  b.template_key,
-                );
-
-                if (isDefaultA && !isDefaultB) return -1;
-                if (!isDefaultA && isDefaultB) return 1;
-                return 0;
-              })
-              .map((template) => (
+            {sortedTemplates.length === 0 ? (
                 <Box
-                  key={template.template_key}
-                  p={4}
-                  border="1px"
-                  borderColor={colorMode === "light" ? "gray.200" : "gray.600"}
-                  borderRadius="sm"
+                    p={6}
+                    textAlign="center"
+                    borderWidth="1px"
+                    borderColor="border"
+                    borderRadius="md"
                 >
-                  <Flex align="center" justify="space-between">
-                    <Text fontSize="lg" fontWeight="bold">
-                      {template.template_name}
+                    <FaFileAlt
+                        size="1.5em"
+                        style={{ opacity: 0.5, marginBottom: "8px" }}
+                    />
+                    <Text fontSize="sm" className="pill-box-icons">
+                        No templates available
                     </Text>
-                    <HStack spacing={2}>
-                      <Button
-                        size="sm"
-                        onClick={() =>
-                          handleEditTemplate(template.template_key)
-                        }
-                        className="summary-buttons"
-                      >
-                        Edit Template
-                      </Button>
-                      {!DefaultTemplates.isDefaultTemplate(
-                        template.template_key,
-                      ) && (
-                        <IconButton
-                          size="sm"
-                          icon={<DeleteIcon />}
-                          onClick={() => {
-                            setTemplateToDelete({
-                              key: template.template_key,
-                              name: template.template_name,
-                            });
-                            setIsDeleteModalOpen(true);
-                          }}
-                          colorScheme="red"
-                          aria-label="Delete template"
-                        />
-                      )}
-                    </HStack>
-                  </Flex>
+                    <Text fontSize="xs" className="pill-box-icons" mt={1}>
+                        Create a template to customize note structure
+                    </Text>
                 </Box>
-              ))
-          ) : (
-            <Text>No templates available</Text>
-          )}
+            ) : (
+                <VStack gap={2} align="stretch">
+                    {sortedTemplates.map((template) => {
+                        const isDefault = isDefaultTemplate(
+                            template.template_key,
+                        );
+                        const isCustomized = isCustomizedDefault(
+                            template.template_key,
+                        );
+                        return (
+                            <Box
+                                key={template.template_key}
+                                p={3}
+                                borderWidth="1px"
+                                borderColor="border"
+                                borderRadius="md"
+                            >
+                                <Flex justify="space-between" align="center">
+                                    <HStack gap={3}>
+                                        <FaFileAlt
+                                            style={{ opacity: 0.5 }}
+                                        />
+                                        <Text fontWeight="bold" fontSize="sm">
+                                            {template.template_name}
+                                        </Text>
+                                        <Badge
+                                            colorPalette={
+                                                isDefault
+                                                    ? "green"
+                                                    : isCustomized
+                                                      ? "blue"
+                                                      : "gray"
+                                            }
+                                            fontSize="xs"
+                                        >
+                                            {isDefault
+                                                ? "Default"
+                                                : isCustomized
+                                                  ? "Customized"
+                                                  : "Custom"}
+                                        </Badge>
+                                    </HStack>
+                                    <HStack gap={1}>
+                                        <Tooltip content="Edit template">
+                                            <IconButton
+                                                variant="ghost"
+                                                size="sm"
+                                                aria-label="Edit template"
+                                                onClick={() =>
+                                                    handleEditTemplate(
+                                                        template.template_key,
+                                                    )
+                                                }
+                                            ><EditIcon /></IconButton>
+                                        </Tooltip>
+                                        {isCustomized ? (
+                                            <Tooltip content="Reset to default">
+                                                <IconButton
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    aria-label="Reset to default"
+                                                    onClick={() => {
+                                                        setTemplateToDelete({
+                                                            key: template.template_key,
+                                                            name: template.template_name,
+                                                        });
+                                                        setIsDeleteModalOpen(
+                                                            true,
+                                                        );
+                                                    }}
+                                                ><RepeatIcon /></IconButton>
+                                            </Tooltip>
+                                        ) : !isDefault ? (
+                                            <Tooltip content="Delete template">
+                                                <IconButton
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    colorPalette="red"
+                                                    aria-label="Delete template"
+                                                    onClick={() => {
+                                                        setTemplateToDelete({
+                                                            key: template.template_key,
+                                                            name: template.template_name,
+                                                        });
+                                                        setIsDeleteModalOpen(
+                                                            true,
+                                                        );
+                                                    }}
+                                                ><DeleteIcon /></IconButton>
+                                            </Tooltip>
+                                        ) : null}
+                                    </HStack>
+                                </Flex>
+                            </Box>
+                        );
+                    })}
+                </VStack>
+            )}
+
+            <TemplateEditor
+                key={selectedTemplateKey || selectedTemplate?.id || "new"}
+                isOpen={isModalOpen}
+                onClose={() => setIsModalOpen(false)}
+                template={selectedTemplate}
+                templateKey={selectedTemplateKey}
+                onSave={handleSaveTemplate}
+                isNewTemplate={isNewTemplate}
+                isDefaultTemplate={
+                    selectedTemplateKey ? isDefaultTemplate(selectedTemplateKey) : false
+                }
+            />
+            <NewTemplateFromExampleModal
+                isOpen={isNewTemplateModalOpen}
+                onClose={() => setIsNewTemplateModalOpen(false)}
+                onCreate={handleNewTemplateFromExample}
+                exampleNote={exampleNote}
+                setExampleNote={setExampleNote}
+                isLoading={isGeneratingTemplate}
+            />
+            <DeleteConfirmationModal
+                isOpen={isDeleteModalOpen}
+                onClose={() => {
+                    setIsDeleteModalOpen(false);
+                    setTemplateToDelete(null);
+                }}
+                onConfirm={() => handleDeleteTemplate(templateToDelete?.key)}
+                itemName={templateToDelete?.name}
+                title={
+                    templateToDelete && isCustomizedDefault(templateToDelete.key)
+                        ? "Reset to Default"
+                        : "Delete Template"
+                }
+                body={
+                    templateToDelete && isCustomizedDefault(templateToDelete.key)
+                        ? `This discards your changes to "${templateToDelete?.name}" and restores the original default template.`
+                        : undefined
+                }
+                confirmLabel={
+                    templateToDelete && isCustomizedDefault(templateToDelete.key)
+                        ? "Reset"
+                        : "Delete"
+                }
+            />
         </VStack>
-      </Collapse>
-
-      <TemplateEditor
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        template={selectedTemplate}
-        templateKey={selectedTemplateKey}
-        onSave={handleSaveTemplate}
-        isNewTemplate={isNewTemplate}
-      />
-
-      {/* New Template from Example Modal */}
-      <NewTemplateFromExampleModal
-        isOpen={isNewTemplateModalOpen}
-        onClose={() => setIsNewTemplateModalOpen(false)}
-        onCreate={handleNewTemplateFromExample}
-        exampleNote={exampleNote}
-        setExampleNote={setExampleNote}
-        isLoading={isGeneratingTemplate}
-      />
-
-      {/* Delete Confirmation Modal */}
-      <DeleteConfirmationModal
-        isOpen={isDeleteModalOpen}
-        onClose={() => {
-          setIsDeleteModalOpen(false);
-          setTemplateToDelete(null);
-        }}
-        onConfirm={() => handleDeleteTemplate(templateToDelete?.key)}
-        itemName={templateToDelete?.name}
-        title="Delete Template"
-      />
-    </Box>
-  );
+    );
 };
 
 export default TemplateSettingsPanel;

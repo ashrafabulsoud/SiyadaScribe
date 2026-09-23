@@ -1,3 +1,4 @@
+These docs describe SiyadaScribe 2.4.x; sections predating the 2.4 resync are being updated.
 # SiyadaScribe Documentation
 
 Welcome to the SiyadaScribe documentation! This site provides comprehensive information about SiyadaScribe, an open-source patient management and AI assistant solution.

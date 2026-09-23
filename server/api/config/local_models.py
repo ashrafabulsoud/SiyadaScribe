@@ -69,13 +69,11 @@ async def get_downloaded_llm_models():
 
 @router.post("/local/models/download")
 async def download_llm_model(
-    request: dict = Body(..., description="Model ID or repo_id/filename.gguf"),
+    request: dict = Body(..., description="Pre-configured model ID"),
 ):
     """Download a model. Replaces any existing model (1 model at a time).
 
-    model_id can be:
-    - A pre-configured model ID like "qwen3-4b"
-    - A custom model in format "repo_id/filename.gguf"
+    model_id must be a pre-configured model ID like "qwen3.5-4b".
     """
     if IS_DOCKER:
         raise HTTPException(
@@ -107,16 +105,14 @@ async def download_llm_model(
         raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
         logging.error(f"Error downloading model {model_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to download model: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Failed to download model") from e
 
 
 @router.get("/local/models/download/stream")
 async def download_llm_model_stream(model_id: str):
     """Stream download progress for LLM model using SSE.
 
-    model_id can be:
-    - A pre-configured model ID like "qwen3-4b"
-    - A custom model in format "repo_id/filename.gguf" (URL encoded)
+    model_id must be a pre-configured model ID like "qwen3.5-4b".
     """
     if IS_DOCKER:
         raise HTTPException(
@@ -175,7 +171,7 @@ async def download_llm_model_stream(model_id: str):
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
         except Exception as e:
             logging.error(f"Download error: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            yield f"data: {json.dumps({'type': 'error', 'message': 'An error occurred during download'})}\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 
@@ -200,108 +196,6 @@ async def delete_llm_model(filename: str):
     except Exception as e:
         logging.error(f"Error deleting model {filename}: {e}")
         raise HTTPException(status_code=500, detail="Failed to delete model") from e
-
-
-@router.get("/local/models/search")
-async def search_huggingface_models(
-    query: str = "gguf",
-    limit: int = 20,
-):
-    """Search for GGUF models on Hugging Face Hub."""
-    try:
-        from huggingface_hub import HfApi
-
-        api = HfApi()
-
-        # Search for models with GGUF in the name or tags
-        models = api.list_models(
-            search=f"{query} gguf", limit=limit, sort="downloads", direction=-1
-        )
-
-        results = []
-        for model in models:
-            # Get basic model info
-            model_info = {
-                "repo_id": model.id,
-                "author": model.author,
-                "downloads": getattr(model, "downloads", 0),
-                "likes": getattr(model, "likes", 0),
-                "tags": getattr(model, "tags", []),
-                "description": getattr(model, "description", ""),
-            }
-
-            # Try to get GGUF files for this model
-            try:
-                files = api.list_repo_files(model.id)
-                gguf_files = [f for f in files if f.endswith(".gguf")]
-                model_info["gguf_files"] = gguf_files[:10]
-                model_info["has_gguf"] = len(gguf_files) > 0
-            except Exception:
-                model_info["gguf_files"] = []
-                model_info["has_gguf"] = False
-
-            # Only include models that have GGUF files
-            if model_info["has_gguf"]:
-                results.append(model_info)
-
-        return {"models": results}
-
-    except ImportError as e:
-        raise HTTPException(status_code=500, detail="huggingface_hub not installed") from e
-    except Exception as e:
-        logging.error(f"Error searching models: {e}")
-        raise HTTPException(status_code=500, detail="Failed to search models") from e
-
-
-@router.get("/local/models/repo/{repo_id:path}")
-async def get_repo_gguf_files(repo_id: str):
-    """Get GGUF files available in a specific repository."""
-    try:
-        from huggingface_hub import list_repo_files
-
-        files = list_repo_files(repo_id)
-        gguf_files = [f for f in files if f.endswith(".gguf")]
-
-        # Organize by quantization type
-        quantizations = {}
-        for file in gguf_files:
-            # Extract quantization info from filename
-            filename_lower = file.lower()
-            if "q4_k_m" in filename_lower:
-                quant_type = "Q4_K_M"
-            elif "q4_0" in filename_lower:
-                quant_type = "Q4_0"
-            elif "q5_k_m" in filename_lower:
-                quant_type = "Q5_K_M"
-            elif "q6_k" in filename_lower:
-                quant_type = "Q6_K"
-            elif "q8_0" in filename_lower:
-                quant_type = "Q8_0"
-            elif "f16" in filename_lower:
-                quant_type = "F16"
-            elif "f32" in filename_lower:
-                quant_type = "F32"
-            else:
-                quant_type = "Other"
-
-            if quant_type not in quantizations:
-                quantizations[quant_type] = []
-            quantizations[quant_type].append(file)
-
-        return {
-            "repo_id": repo_id,
-            "gguf_files": gguf_files,
-            "quantizations": quantizations,
-        }
-
-    except ImportError as e:
-        raise HTTPException(status_code=500, detail="huggingface_hub not installed") from e
-    except Exception as e:
-        logging.error(f"Error getting repo files for {repo_id}: {e}")
-        raise HTTPException(
-            status_code=404,
-            detail="Repository not found or error accessing files",
-        ) from e
 
 
 @router.get("/local/status")

@@ -8,18 +8,33 @@ from fastapi import (
     HTTPException,
     UploadFile,
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from server.schemas.patient import TranscribeResponse
-from server.utils.nlp_tools.document_processing import (
+from server.nlp_tools.document_processing import (
+    _extract_demographics_from_text,
+    extract_demographics_from_document,
+    extract_demographics_from_visual_pages,
     process_document_text_with_template,
     process_document_with_template,
     process_visual_document_with_template,
 )
-from server.utils.transcription.audio import transcribe_audio
-from server.utils.transcription.text import process_transcription
+from server.schemas.documents import VisualDocumentPage
+from server.schemas.patient import TranscribeResponse
+from server.transcription.audio import transcribe_audio
+from server.transcription.text import process_transcription
 
 router = APIRouter()
+
+
+def _format_patient_display_name(name: str | None) -> str:
+    """Format a "Last, First" patient name into "First Last" for display."""
+    if not name:
+        return "N/A"
+    parts = name.split(",")
+    last_name = parts[0].strip()
+    first_name = parts[1].strip() if len(parts) > 1 else ""
+    full = f"{first_name} {last_name}".strip()
+    return full or "N/A"
 
 
 class ProcessDocumentFromTextRequest(BaseModel):
@@ -27,15 +42,7 @@ class ProcessDocumentFromTextRequest(BaseModel):
     name: str | None = None
     gender: str | None = None
     dob: str | None = None
-    templateKey: str | None = None
-
-
-class VisualDocumentPage(BaseModel):
-    page_number: int
-    data_url: str
-    mime_type: str | None = None
-    width: int | None = None
-    height: int | None = None
+    templateKey: str = Field(..., description="Template key is required for document processing")
 
 
 class ProcessVisualDocumentRequest(BaseModel):
@@ -45,7 +52,15 @@ class ProcessVisualDocumentRequest(BaseModel):
     name: str | None = None
     gender: str | None = None
     dob: str | None = None
-    templateKey: str | None = None
+    templateKey: str = Field(..., description="Template key is required for document processing")
+
+
+class ExtractDemographicsFromTextRequest(BaseModel):
+    extracted_text: str
+
+
+class ExtractDemographicsVisualRequest(BaseModel):
+    pages: list[VisualDocumentPage]
 
 
 @router.post("/audio", response_model=TranscribeResponse)
@@ -64,12 +79,7 @@ async def transcribe(
         audio_buffer = await file.read()
 
         # Process the name if provided
-        formatted_name = "N/A"
-        if name:
-            name_parts = name.split(",")
-            last_name = name_parts[0].strip()
-            first_name = name_parts[1].strip() if len(name_parts) > 1 else ""
-            formatted_name = f"{first_name} {last_name}"
+        formatted_name = _format_patient_display_name(name)
 
         # Perform transcription
         transcription_result = await transcribe_audio(audio_buffer)
@@ -79,14 +89,14 @@ async def transcribe(
         # Get template fields if template key is provided
         template_fields = []
         if templateKey:
-            from server.database.entities.templates import get_template_fields
+            from server.database.repositories.templates import get_template_fields
 
             template_fields = get_template_fields(templateKey)
 
         # Look up primary condition for returning patients
         primary_condition = None
         if noteId:
-            from server.database.entities.patient import get_patient_by_id
+            from server.database.repositories.encounter import get_patient_by_id
 
             existing_patient = get_patient_by_id(noteId)
             if existing_patient and existing_patient.get("primary_condition"):
@@ -114,7 +124,7 @@ async def transcribe(
 
     except Exception as e:
         logging.error(f"Error occurred: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.post("/dictate")
@@ -136,7 +146,7 @@ async def dictate(file: UploadFile = File(...)):
         }
     except Exception as e:
         logging.error(f"Error occurred during dictation: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.post("/reprocess", response_model=TranscribeResponse)
@@ -153,24 +163,19 @@ async def reprocess_transcription(
     """Reprocesses an existing transcription."""
     try:
         # Process the name if provided
-        formatted_name = "N/A"
-        if name:
-            name_parts = name.split(",")
-            last_name = name_parts[0].strip()
-            first_name = name_parts[1].strip() if len(name_parts) > 1 else ""
-            formatted_name = f"{first_name} {last_name}"
+        formatted_name = _format_patient_display_name(name)
 
         # Get template fields if template key is provided
         template_fields = []
         if templateKey:
-            from server.database.entities.templates import get_template_fields
+            from server.database.repositories.templates import get_template_fields
 
             template_fields = get_template_fields(templateKey)
 
         # Look up primary condition for returning patients
         primary_condition = None
         if noteId:
-            from server.database.entities.patient import get_patient_by_id
+            from server.database.repositories.encounter import get_patient_by_id
 
             existing_patient = get_patient_by_id(noteId)
             if existing_patient and existing_patient.get("primary_condition"):
@@ -198,7 +203,7 @@ async def reprocess_transcription(
 
     except Exception as e:
         logging.error(f"Error occurred during reprocessing: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.post("/process-document", response_model=TranscribeResponse)  # Changed response model
@@ -207,7 +212,7 @@ async def process_document(
     name: str | None = Form(None),
     gender: str | None = Form(None),
     dob: str | None = Form(None),
-    templateKey: str | None = Form(None),
+    templateKey: str = Form(..., description="Template key is required for document processing"),
 ):
     """Processes a document to extract information and fill template fields."""
     try:
@@ -218,19 +223,11 @@ async def process_document(
         content_type = file.content_type
 
         # Process the name if provided
-        formatted_name = "N/A"
-        if name:
-            name_parts = name.split(",")
-            last_name = name_parts[0].strip()
-            first_name = name_parts[1].strip() if len(name_parts) > 1 else ""
-            formatted_name = f"{first_name} {last_name}"
+        formatted_name = _format_patient_display_name(name)
 
-        # Get template fields if template key is provided
-        template_fields = []
-        if templateKey:
-            from server.database.entities.templates import get_template_fields
+        from server.database.repositories.templates import get_template_fields
 
-            template_fields = get_template_fields(templateKey)
+        template_fields = get_template_fields(templateKey)
 
         # Create patient context
         patient_context = {"name": formatted_name, "dob": dob, "gender": gender}
@@ -247,12 +244,64 @@ async def process_document(
         return TranscribeResponse(
             fields=result,
             rawTranscription="",  # We don't include raw transcription for document uploads
-            transcriptionDuration=0,  # No transcription for documents
+            transcriptionDuration=0,  # No transcription for document uploads
             processDuration=process_duration,
         )
+    except HTTPException:
+        raise
+    except ValueError as e:
+        # Image exceeded pixel cap (decompression bomb)
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logging.error(f"Error processing document: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
+
+
+@router.post("/extract-demographics")
+async def extract_demographics(file: UploadFile = File(...)):
+    """Extract patient demographics from an uploaded document (referral, ID, etc.)."""
+    try:
+        document_buffer = await file.read()
+        result = await extract_demographics_from_document(document_buffer, file.content_type or "")
+        return result
+    except HTTPException:
+        raise
+    except ValueError as e:
+        # Image exceeded pixel cap (decompression bomb)
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        logging.error(f"Error extracting demographics: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error") from e
+
+
+@router.post("/extract-demographics-from-text")
+async def extract_demographics_from_text(payload: ExtractDemographicsFromTextRequest):
+    """Extract patient demographics from already-extracted document text."""
+    try:
+        extracted_text = (payload.extracted_text or "").strip()
+        if not extracted_text:
+            raise HTTPException(status_code=400, detail="No extracted_text provided")
+        return await _extract_demographics_from_text(extracted_text)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error extracting demographics from text: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error") from e
+
+
+@router.post("/extract-demographics-visual")
+async def extract_demographics_visual(payload: ExtractDemographicsVisualRequest):
+    """Extract patient demographics from rendered document page images."""
+    try:
+        if not payload.pages:
+            raise HTTPException(status_code=400, detail="No visual pages provided")
+        visual_pages = [page.model_dump() for page in payload.pages]
+        return await extract_demographics_from_visual_pages(visual_pages)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error extracting demographics from visual: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.post("/process-document-visual", response_model=TranscribeResponse)
@@ -263,19 +312,11 @@ async def process_document_visual(payload: ProcessVisualDocumentRequest):
             raise HTTPException(status_code=400, detail="No visual pages provided")
 
         # Process the name if provided
-        formatted_name = "N/A"
-        if payload.name:
-            name_parts = payload.name.split(",")
-            last_name = name_parts[0].strip()
-            first_name = name_parts[1].strip() if len(name_parts) > 1 else ""
-            formatted_name = f"{first_name} {last_name}".strip()
+        formatted_name = _format_patient_display_name(payload.name)
 
-        # Get template fields if template key is provided
-        template_fields = []
-        if payload.templateKey:
-            from server.database.entities.templates import get_template_fields
+        from server.database.repositories.templates import get_template_fields
 
-            template_fields = get_template_fields(payload.templateKey)
+        template_fields = get_template_fields(payload.templateKey)
 
         # Create patient context
         patient_context = {
@@ -306,7 +347,7 @@ async def process_document_visual(payload: ProcessVisualDocumentRequest):
         raise
     except Exception as e:
         logging.error(f"Error processing visual document: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
 @router.post("/process-document-from-text", response_model=TranscribeResponse)
@@ -318,19 +359,11 @@ async def process_document_from_text(payload: ProcessDocumentFromTextRequest):
             raise HTTPException(status_code=400, detail="No extracted_text provided")
 
         # Process the name if provided
-        formatted_name = "N/A"
-        if payload.name:
-            name_parts = payload.name.split(",")
-            last_name = name_parts[0].strip()
-            first_name = name_parts[1].strip() if len(name_parts) > 1 else ""
-            formatted_name = f"{first_name} {last_name}".strip()
+        formatted_name = _format_patient_display_name(payload.name)
 
-        # Get template fields if template key is provided
-        template_fields = []
-        if payload.templateKey:
-            from server.database.entities.templates import get_template_fields
+        from server.database.repositories.templates import get_template_fields
 
-            template_fields = get_template_fields(payload.templateKey)
+        template_fields = get_template_fields(payload.templateKey)
 
         # Create patient context
         patient_context = {
@@ -359,4 +392,4 @@ async def process_document_from_text(payload: ProcessDocumentFromTextRequest):
         raise
     except Exception as e:
         logging.error(f"Error processing extracted document text: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Internal server error") from e

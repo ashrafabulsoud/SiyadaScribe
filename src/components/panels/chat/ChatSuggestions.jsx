@@ -1,6 +1,6 @@
 import React from "react";
 import { Flex, Button } from "@chakra-ui/react";
-import { QuestionIcon } from "@chakra-ui/icons";
+import { QuestionIcon } from "../../common/icons";
 
 const ChatSuggestions = ({ handleSendMessage, userSettings }) => {
   if (!userSettings) return null;
@@ -21,15 +21,11 @@ const ChatSuggestions = ({ handleSendMessage, userSettings }) => {
           return (
             <Button
               key={n}
-              leftIcon={<QuestionIcon />}
               m="1.5"
               size="md"
               variant="outline"
               onClick={() => handleSendMessage(prompt)}
-              className="chat-suggestions"
-            >
-              {title}
-            </Button>
+              className="chat-suggestions"><QuestionIcon />{title}</Button>
           );
         })}
       </Flex>

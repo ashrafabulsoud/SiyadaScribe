@@ -1,38 +1,26 @@
 // Component for uploading and vectorizing documents into the RAG database.
 import React, { useState } from "react";
-import {
-    Box,
-    Text,
-    Flex,
-    HStack,
-    VStack,
-    Input,
-    Button,
-    FormLabel,
-    IconButton,
-    Collapse,
-    useToast,
-} from "@chakra-ui/react";
-import { ChevronDownIcon, ChevronRightIcon, AddIcon } from "@chakra-ui/icons";
+import { Field, Box, Text, Flex, HStack, VStack, Input, Button, IconButton, Collapsible, Tabs } from "@chakra-ui/react";
+import { toaster } from "@/components/ui/toaster";
+import { ChevronDownIcon, ChevronRightIcon, AddIcon } from "../common/icons";
 import { MdFileUpload } from "react-icons/md";
+import { FaCloudUploadAlt } from "react-icons/fa";
 import { ragApi } from "../../utils/api/ragApi";
-import { chatApi } from "../../utils/api/chatApi";
-import { extractPdfTextOrRenderForVision } from "../../utils/helpers/pdfVisionHelpers";
-import { universalFetch } from "../../utils/helpers/apiHelpers";
-import { buildApiUrl } from "../../utils/helpers/apiConfig";
+import { extractPdfMetadata } from "../../utils/helpers/pdfExtractHelpers";
+import BulkUploader from "./BulkUploader";
 
 const Uploader = ({ isCollapsed, setIsCollapsed, setCollections }) => {
     const [pdfFile, setPdfFile] = useState(null);
-    // eslint-disable-next-line no-unused-vars
-    const [suggestedCollection, setSuggestedCollection] = useState("");
+     
+    const [, setSuggestedCollection] = useState("");
     const [customCollectionName, setCustomCollectionName] = useState("");
     const [documentSource, setDocumentSource] = useState("");
     const [focusArea, setFocusArea] = useState("");
+    const [title, setTitle] = useState("");
     const [filename, setFilename] = useState("");
     const [pdfData, setPdfData] = useState(null);
     const [isExtracting, setIsExtracting] = useState(false);
     const [isCommitting, setIsCommitting] = useState(false);
-    const toast = useToast();
     const handlePdfUpload = (event) => {
         const file = event.target.files[0];
         setPdfFile(file);
@@ -42,171 +30,39 @@ const Uploader = ({ isCollapsed, setIsCollapsed, setCollections }) => {
         setIsExtracting(true);
         try {
             if (!pdfFile) {
-                toast({
+                toaster.create({
                     title: "No file selected",
                     description: "Please select a PDF file to upload",
-                    status: "warning",
+                    type: "warning",
                     duration: 3000,
-                    isClosable: true,
                 });
                 return;
             }
 
-            const filenameForUpload = pdfFile.name || "uploaded.pdf";
-            let data = null;
-            let usedLegacyFallback = false;
-            let mode = "auto";
-            let visionCapable = false;
+            const result = await extractPdfMetadata(pdfFile);
 
-            try {
-                const configResponse = await universalFetch(
-                    await buildApiUrl("/api/config/global"),
-                );
-                if (configResponse.ok) {
-                    const cfg = await configResponse.json();
-                    const rawMode = String(
-                        cfg?.DOCUMENT_IMAGE_PROCESSING_MODE || "auto",
-                    )
-                        .trim()
-                        .toLowerCase();
-                    mode =
-                        rawMode === "vision" ||
-                        rawMode === "ocr" ||
-                        rawMode === "auto"
-                            ? rawMode
-                            : "auto";
-
-                    try {
-                        const capability =
-                            await chatApi.getCurrentVisionCapability();
-                        visionCapable = Boolean(capability?.vision_capable);
-                    } catch (capabilityError) {
-                        console.warn(
-                            "Could not load cached current vision capability, falling back to legacy flag:",
-                            capabilityError,
-                        );
-                        visionCapable = Boolean(cfg?.VISION_MODEL_CAPABLE);
-                    }
-                }
-            } catch (configError) {
-                console.warn(
-                    "Could not load processing mode config, defaulting to auto:",
-                    configError,
-                );
-            }
-
-            const shouldUseVision =
-                mode === "vision" || (mode === "auto" && visionCapable);
-            const allowOcrFallback = mode !== "vision";
-
-            if (mode === "vision" && !visionCapable) {
-                throw new Error(
-                    "Vision mode is enabled, but the selected endpoint/model is not marked as vision-capable.",
-                );
-            }
-
-            if (shouldUseVision) {
-                try {
-                    const pdfResult =
-                        await extractPdfTextOrRenderForVision(pdfFile);
-
-                    let extractedText = "";
-                    if (pdfResult.strategy === "text") {
-                        extractedText = pdfResult.textResult?.text || "";
-                    } else {
-                        const visualResult =
-                            await chatApi.analyzeVisualDocument({
-                                filename: filenameForUpload,
-                                content_type: "application/pdf",
-                                strategy: "vision",
-                                pages: (
-                                    pdfResult.imageResult?.images || []
-                                ).map((img) => ({
-                                    page_number: img.pageNumber,
-                                    data_url: img.dataUrl,
-                                    mime_type: img.mimeType,
-                                    width: img.width,
-                                    height: img.height,
-                                })),
-                                fallback_text: pdfResult.textResult?.text || "",
-                                extraction_info: {
-                                    reason:
-                                        pdfResult.textResult?.quality?.reason ||
-                                        "No usable embedded PDF text",
-                                    stats:
-                                        pdfResult.textResult?.quality?.stats ||
-                                        {},
-                                    page_count:
-                                        pdfResult.textResult?.pageCount || 0,
-                                    processed_pages:
-                                        pdfResult.textResult?.processedPages ||
-                                        0,
-                                    rendered_pages:
-                                        pdfResult.imageResult?.renderedPages ||
-                                        0,
-                                },
-                            });
-
-                        extractedText =
-                            visualResult.text ||
-                            pdfResult.textResult?.text ||
-                            "";
-                    }
-
-                    if (!extractedText.trim()) {
-                        throw new Error(
-                            "Could not extract usable text from frontend visual/text-first path.",
-                        );
-                    }
-
-                    data = await ragApi.extractPdfInfoFromText({
-                        extracted_text: extractedText,
-                        filename: filenameForUpload,
-                    });
-                } catch (visionPathError) {
-                    if (!allowOcrFallback) {
-                        throw visionPathError;
-                    }
-
-                    console.warn(
-                        "Vision path unavailable; falling back to backend OCR/PDF extraction:",
-                        visionPathError,
-                    );
-                    usedLegacyFallback = true;
-                    const formData = new FormData();
-                    formData.append("file", pdfFile);
-                    data = await ragApi.extractPdfInfo(formData);
-                }
-            } else {
-                usedLegacyFallback = true;
-                const formData = new FormData();
-                formData.append("file", pdfFile);
-                data = await ragApi.extractPdfInfo(formData);
-            }
-
-            setPdfData(data);
-            setSuggestedCollection(data.disease_name);
-            setCustomCollectionName(data.disease_name);
-            setDocumentSource(data.document_source);
-            setFocusArea(data.focus_area);
-            toast({
+            setPdfData(result);
+            setSuggestedCollection(result.disease_name);
+            setCustomCollectionName(result.disease_name);
+            setDocumentSource(result.document_source);
+            setFocusArea(result.focus_area);
+            setTitle(result.title || "");
+            toaster.create({
                 title: "Extraction Successful",
-                description: usedLegacyFallback
-                    ? "PDF information extracted via backend fallback"
-                    : "PDF information extracted successfully",
-                status: "success",
+                description: result.extractedText
+                    ? "PDF information extracted successfully"
+                    : "PDF information extracted via backend fallback",
+                type: "success",
                 duration: 3000,
-                isClosable: true,
             });
         } catch (error) {
             console.error("Error extracting PDF info:", error);
-            toast({
+            toaster.create({
                 title: "Extraction Failed",
                 description:
                     error.message || "Failed to extract PDF information",
-                status: "error",
+                type: "error",
                 duration: 3000,
-                isClosable: true,
             });
         } finally {
             setIsExtracting(false);
@@ -215,24 +71,35 @@ const Uploader = ({ isCollapsed, setIsCollapsed, setCollections }) => {
 
     const handleCommitToDatabase = async () => {
         if (!pdfData) {
-            toast({
+            toaster.create({
                 title: "No Data to Commit",
                 description: "Please extract PDF information first",
-                status: "warning",
+                type: "warning",
                 duration: 3000,
-                isClosable: true,
             });
             return;
         }
         setIsCommitting(true);
         try {
-            const data = {
-                disease_name: customCollectionName,
-                focus_area: focusArea,
-                document_source: documentSource,
-                filename: filename,
-            };
-            await ragApi.commitToDatabase(data);
+            if (pdfData.extractedText) {
+                await ragApi.commitDirect({
+                    extracted_text: pdfData.extractedText,
+                    disease_name: customCollectionName,
+                    focus_area: focusArea,
+                    document_source: documentSource,
+                    filename: filename,
+                    title: title || null,
+                    pdf_base64: pdfData.pdfBase64 || null,
+                });
+            } else {
+                await ragApi.commitToDatabase({
+                    disease_name: customCollectionName,
+                    focus_area: focusArea,
+                    document_source: documentSource,
+                    filename: filename,
+                    title: title || null,
+                });
+            }
             const updatedCollections = await ragApi.fetchCollections();
             setCollections(
                 updatedCollections.files.map((name) => ({
@@ -246,24 +113,23 @@ const Uploader = ({ isCollapsed, setIsCollapsed, setCollections }) => {
             setCustomCollectionName("");
             setDocumentSource("");
             setFocusArea("");
+            setTitle("");
             setFilename("");
             setPdfData(null);
-            toast({
+            toaster.create({
                 title: "Commit Successful",
                 description: "Data successfully committed to the database",
-                status: "success",
+                type: "success",
                 duration: 3000,
-                isClosable: true,
             });
         } catch (error) {
             console.error("Error committing to database:", error);
-            toast({
+            toaster.create({
                 title: "Error",
                 description:
                     error.message || "Failed to commit data to the database",
-                status: "error",
+                type: "error",
                 duration: 3000,
-                isClosable: true,
             });
         } finally {
             setIsCommitting(false);
@@ -274,98 +140,129 @@ const Uploader = ({ isCollapsed, setIsCollapsed, setCollections }) => {
             <Flex align="center" justify="space-between">
                 <Flex align="center">
                     <IconButton
-                        icon={
-                            isCollapsed ? (
-                                <ChevronRightIcon />
-                            ) : (
-                                <ChevronDownIcon />
-                            )
-                        }
                         onClick={() => setIsCollapsed(!isCollapsed)}
                         aria-label="Toggle collapse"
                         variant="outline"
                         size="sm"
                         mr="2"
-                        className="collapse-toggle"
-                    />
-                    <HStack spacing={2}>
+                        className="collapse-toggle">{isCollapsed ? (
+                            <ChevronRightIcon />
+                        ) : (
+                            <ChevronDownIcon />
+                        )}</IconButton>
+                    <HStack gap={2}>
                         <MdFileUpload size="1.2em" />
-                        <Text as="h3">Uploader</Text>
+                        <Text as="h3">Upload Documents</Text>
                     </HStack>
                 </Flex>
             </Flex>
-            <Collapse in={!isCollapsed} animateOpacity>
-                <VStack spacing={4} align="stretch" mt={4}>
-                    <Input
-                        id="pdf-upload"
-                        type="file"
-                        accept=".pdf"
-                        onChange={handlePdfUpload}
-                        className="input-style"
-                    />
-                    <Button
-                        leftIcon={<AddIcon />}
-                        onClick={handleExtractPdfInfo}
-                        width="220px"
-                        isLoading={isExtracting}
-                        loadingText="Extracting..."
-                        className="orange-button"
-                        alignSelf="flex-start"
-                    >
-                        Extract PDF Info
-                    </Button>
-                    {pdfData && (
-                        <VStack spacing={3} align="stretch" mt={2}>
-                            <Text fontWeight="bold">Extracted Information</Text>
-                            <FormLabel htmlFor="custom-collection">
-                                Collection Name:
-                            </FormLabel>
-                            <Input
-                                id="custom-collection"
-                                placeholder="Custom Collection Name"
-                                className="input-style"
-                                value={customCollectionName}
-                                onChange={(e) =>
-                                    setCustomCollectionName(e.target.value)
-                                }
-                            />
-                            <FormLabel htmlFor="document-source">
-                                Document Source:
-                            </FormLabel>
-                            <Input
-                                id="document-source"
-                                placeholder="Document Source"
-                                className="input-style"
-                                value={documentSource}
-                                onChange={(e) =>
-                                    setDocumentSource(e.target.value)
-                                }
-                            />
-                            <FormLabel htmlFor="focus-area">
-                                Focus Area:
-                            </FormLabel>
-                            <Input
-                                id="focus-area"
-                                placeholder="Focus Area"
-                                className="input-style"
-                                value={focusArea}
-                                onChange={(e) => setFocusArea(e.target.value)}
-                            />
-                            <Button
-                                leftIcon={<AddIcon />}
-                                onClick={handleCommitToDatabase}
-                                isLoading={isCommitting}
-                                loadingText="Committing..."
-                                className="green-button"
-                                width="220px"
-                                alignSelf="flex-start"
-                            >
-                                Commit to Database
-                            </Button>
-                        </VStack>
-                    )}
-                </VStack>
-            </Collapse>
+            <Collapsible.Root open={!isCollapsed}>
+                <Collapsible.Content>
+                    <Tabs.Root variant='enclosed' mt={4} defaultValue="0">
+                        <Tabs.List>
+                            <Tabs.Trigger className="tab-style" value="0">
+                                <HStack>
+                                    <MdFileUpload />
+                                    <Text>Single Upload</Text>
+                                </HStack>
+                            </Tabs.Trigger>
+                            <Tabs.Trigger className="tab-style" value="1">
+                                <HStack>
+                                    <FaCloudUploadAlt />
+                                    <Text>Bulk Upload</Text>
+                                </HStack>
+                            </Tabs.Trigger>
+                        </Tabs.List>
+                        <Tabs.Content className="floating-main" value="0">
+                                <VStack gap={4} align="stretch">
+                                    <Input
+                                        id="pdf-upload"
+                                        type="file"
+                                        accept=".pdf"
+                                        onChange={handlePdfUpload}
+                                        className="input-style"
+                                    />
+                                    <Button
+                                        onClick={handleExtractPdfInfo}
+                                        width="220px"
+                                        loading={isExtracting}
+                                        loadingText="Extracting..."
+                                        className="orange-button"
+                                        alignSelf="flex-start"><AddIcon />Extract PDF Info
+                                                                        </Button>
+                                    {pdfData && (
+                                        <VStack gap={3} align="stretch" mt={2}>
+                                            <Text fontWeight="bold">Extracted Information</Text>
+                                            <Field.Root>
+                                            <Field.Label htmlFor="custom-collection">
+                                                Collection Name:
+                                            </Field.Label>
+                                            <Input
+                                                id="custom-collection"
+                                                placeholder="Custom Collection Name"
+                                                className="input-style"
+                                                value={customCollectionName}
+                                                onChange={(e) =>
+                                                    setCustomCollectionName(e.target.value)
+                                                }
+                                            />
+                                            </Field.Root>
+                                            <Field.Root>
+                                            <Field.Label htmlFor="document-source">
+                                                Document Source:
+                                            </Field.Label>
+                                            <Input
+                                                id="document-source"
+                                                placeholder="Document Source"
+                                                className="input-style"
+                                                value={documentSource}
+                                                onChange={(e) =>
+                                                    setDocumentSource(e.target.value)
+                                                }
+                                            />
+                                            </Field.Root>
+                                            <Field.Root>
+                                            <Field.Label htmlFor="focus-area">
+                                                Focus Area:
+                                            </Field.Label>
+                                            <Input
+                                                id="focus-area"
+                                                placeholder="Focus Area"
+                                                className="input-style"
+                                                value={focusArea}
+                                                onChange={(e) => setFocusArea(e.target.value)}
+                                            />
+                                            </Field.Root>
+                                            <Field.Root>
+                                            <Field.Label htmlFor="document-title">
+                                                Document Title:
+                                            </Field.Label>
+                                            <Input
+                                                id="document-title"
+                                                placeholder="Document Title"
+                                                className="input-style"
+                                                value={title}
+                                                onChange={(e) => setTitle(e.target.value)}
+                                            />
+                                            </Field.Root>
+                                            <Button
+                                                onClick={handleCommitToDatabase}
+                                                loading={isCommitting}
+                                                loadingText="Committing..."
+                                                className="green-button"
+                                                width="220px"
+                                                alignSelf="flex-start"><AddIcon />Commit to Database
+                                                                                        </Button>
+                                        </VStack>
+                                    )}
+                                </VStack>
+                            </Tabs.Content>
+                            <Tabs.Content className="floating-main" value="1">
+                                <BulkUploader setCollections={setCollections} />
+                            </Tabs.Content>
+                    </Tabs.Root>
+                </Collapsible.Content>
+            </Collapsible.Root>
         </Box>
     );
 };
